@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>NSDD Software Factory — TicketFlow</title>
+<style>
+  :root{--bg:#0f1117;--card:#181b24;--line:#262b38;--tx:#e8eaf0;--mut:#8b93a7;--acc:#5b8cff;--ok:#3fb96a;--warn:#e0a93e;--bad:#e05c5c;}
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:var(--bg);color:var(--tx);font:14px/1.5 system-ui,sans-serif;padding:24px}
+  header{display:flex;justify-content:space-between;align-items:baseline;flex-wrap:wrap;gap:8px;margin-bottom:16px}
+  h1{font-size:20px} h2{font-size:15px;margin-bottom:10px;color:var(--acc)}
+  .sub{color:var(--mut);font-size:12px}
+  nav{display:flex;gap:6px;margin-bottom:18px;flex-wrap:wrap}
+  nav button{background:var(--card);border:1px solid var(--line);color:var(--mut);padding:7px 14px;border-radius:8px;cursor:pointer;font-size:13px}
+  nav button.on{color:var(--tx);border-color:var(--acc);background:#1c2436}
+  section{display:none} section.on{display:block}
+  .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:12px}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:14px}
+  .card h3{font-size:13px;margin-bottom:6px}
+  .card p,.card li{font-size:13px;color:var(--mut)}
+  ul{padding-left:18px} .li-ok{color:var(--tx)}
+  .chip{display:inline-block;padding:2px 9px;border-radius:99px;font-size:11px;margin:2px 4px 2px 0;border:1px solid var(--line);color:var(--mut)}
+  .st-planned{color:var(--mut)} .st-inprogress{color:var(--warn);border-color:var(--warn)}
+  .st-implemented{color:var(--acc);border-color:var(--acc)} .st-verified{color:var(--ok);border-color:var(--ok)}
+  .st-ship{color:var(--ok);border-color:var(--ok);font-weight:600} .st-noship{color:var(--bad);border-color:var(--bad);font-weight:600}
+  .timeline{border-left:2px solid var(--line);margin-left:8px;padding-left:18px;display:grid;gap:14px}
+  .tl-item{position:relative} .tl-item:before{content:"";position:absolute;left:-24px;top:5px;width:10px;height:10px;border-radius:50%;background:var(--acc)}
+  .tl-item.done:before{background:var(--ok)}
+  .kpi{display:flex;gap:12px;flex-wrap:wrap;margin-bottom:14px}
+  .kpi .card{min-width:150px;text-align:center}
+  .kpi b{display:block;font-size:22px;color:var(--tx)}
+  .kbd{background:#0d0f14;border:1px solid var(--line);border-radius:6px;padding:1px 7px;font-family:monospace;font-size:12px;color:var(--ok)}
+  .empty{color:var(--mut);font-style:italic}
+</style>
+</head>
+<body>
+<header>
+  <h1>🏭 TicketFlow</h1>
+  <span class="sub">NSDD Software Factory · actualizado 2026-11-14 · División Backend Cloud (.NET + AWS local) · <span class="st-ship" style="border:none">QA: SHIP</span></span>
+</header>
+<nav>
+  <button class="on" data-t="mvp">MVP</button>
+  <button data-t="kanban">Kanban</button>
+  <button data-t="roadmap">Roadmap</button>
+  <button data-t="quality">Calidad</button>
+  <button data-t="learn">Bloqueos y aprendizajes</button>
+  <button data-t="decisions">Decisiones</button>
+</nav>
+
+<section id="mvp" class="on">
+  <h2>Entregable MVP — listo para review G2</h2>
+  <div class="card"><ul>
+    <li class="li-ok"><b>TicketFlow</b> — venta de entradas alta demanda: saga orquestada (reserva→pago→emisión + compensación observable), idempotencia HTTP y de comandos, cache MISS/HIT/invalidación, estado en DynamoDB/SQS/S3 del emulador AWS local (:9297). .NET 10, clean architecture, 13 csproj, 8 patrones mapeados.</li>
+    <li class="li-ok"><b>Levantarlo</b>: <span class="kbd">powershell -File scripts/run-local.ps1</span> → emulador + 4 servicios + seed. Demostraciones: <span class="kbd">scripts/demo-cache.ps1</span> · <span class="kbd">scripts/demo-idempotency.ps1</span> (ambas exit 0, verificadas por dev y QA).</li>
+    <li class="li-ok"><b>Flujo manual</b> (ejemplos copiables en README): GET /events → GET availability (MISS→HIT) → POST /purchases con Idempotency-Key (PAN ...0002 = rechazo y compensación) → GET /purchases/{id} hasta TICKETS_ISSUED.</li>
+    <li class="li-ok"><b>DoD comercial</b>: README ejecutable ✓ LICENSE MIT ✓ CHANGELOG 0.1.0 ✓ 98/98 tests ✓ cero secrets ✓ (QA verificó todo con corridas propias).</li>
+    <li>Pendiente del gate: <span class="chip st-inprogress">G2 — aprobación del Negocio</span> y <span class="chip st-planned">git init + commit (post-G2)</span>.</li>
+  </ul></div>
+</section>
+
+<section id="kanban">
+  <h2>Historias y estado</h2>
+  <div class="grid">
+    <div class="card"><h3>N-1001 · H-01 Catálogo + disponibilidad con cache</h3><span class="chip st-verified">verified</span><span class="chip">M</span><ul><li>AC1 MISS→HIT ✓</li><li>AC2 invalidación al comprar ✓</li><li>AC3 GET /events lista 16 eventos ✓</li><li>AC4 estado vive en emulador ✓</li></ul></div>
+    <div class="card"><h3>N-1002 · H-02 Saga de compra con compensación</h3><span class="chip st-verified">verified</span><span class="chip">L</span><ul><li>AC1 → TICKETS_ISSUED ~0,8 s ✓</li><li>AC2 disponibilidad decrece exacto ✓</li><li>AC3 PAN ...0002 → FAILED + liberación ✓</li><li>AC4 estados visibles por API ✓</li></ul></div>
+    <div class="card"><h3>N-1003 · H-03 Idempotencia (HTTP + comandos)</h3><span class="chip st-verified">verified</span><span class="chip">M</span><ul><li>AC1 misma key ⇒ misma compra ✓</li><li>AC2 duplicado interno → 1 efecto + log ✓</li><li>AC3 agotado → 422 explícito ✓</li><li>QA extra: 4 POST concurrentes misma key → 1 compra ✓</li></ul></div>
+    <div class="card"><h3>N-1004 · H-04 README + scripts de demo</h3><span class="chip st-verified">verified</span><span class="chip">M</span><ul><li>AC1 quickstart 1 comando (corrida fría) ✓</li><li>AC2 demo-idempotency exit 0 ✓</li><li>AC3 demo-cache exit 0 ✓</li><li>AC4 diagrama + ADR + mapa de patrones ✓</li></ul></div>
+  </div>
+</section>
+
+<section id="roadmap">
+  <h2>Entregas de valor</h2>
+  <div class="timeline">
+    <div class="tl-item done"><b>V0 — MVP "drop de entradas demostrable"</b><p>H-01..H-04 completas y verificadas. QA final: SHIP. <span class="chip st-verified">entregado · en G2</span></p></div>
+    <div class="tl-item"><b>V1 — "producción creíble"</b><p>trazas distribuidas · reintentos/DLQ/circuit breaker · estrés concurrente (H-05..H-07). Absorbe deuda F-04..F-07. Necesita: G2 aprobado. <span class="chip st-planned">en plan</span></p></div>
+    <div class="tl-item"><b>V2 — "mantenible"</b><p>CI + IaC del entorno local + hold de asientos con TTL (H-08..H-09). Necesita: V1 con tests estables. <span class="chip st-planned">futuro</span></p></div>
+  </div>
+</section>
+
+<section id="quality">
+  <h2>Verificación y QA</h2>
+  <div class="kpi">
+    <div class="card"><b>98/98</b><p>tests verdes (dev y QA independientes)</p></div>
+    <div class="card"><b>81–93%</b><p>cobertura 4 Core (umbral ≥70% cableado y mordiendo)</p></div>
+    <div class="card"><b>1,4/20,7/790 ms</b><p>p95 HIT/POST/saga vs 50/200/2000 objetivo</p></div>
+    <div class="card"><b>SHIP</b><p>veredicto QA ronda 2 (0 críticos, 0 mayores abiertos)</p></div>
+  </div>
+  <div class="card"><ul>
+    <li>Adversarial: 26 payloads hostiles → 0×5xx, 0 internals · 4 POST simultáneos misma key → 1 compra · 3 carreras sobre stock → 0 oversell · docker pause 7 min → recovery total.</li>
+    <li>Gates de división 4/4: idempotencia ✓ cache ✓ 100% AWS-local (proceso se niega a arrancar contra AWS real) ✓ cero secrets ✓.</li>
+    <li>Deuda menor documentada (V1): F-04 content-type laxo · F-05 ventana claim→decremento no atómica (ms, sin oversell) · F-06 residuos it-* en GET /events · F-07 .Api sin cobertura de suite.</li>
+  </ul></div>
+</section>
+
+<section id="learn">
+  <h2>Bloqueos y aprendizajes</h2>
+  <div class="grid">
+    <div class="card"><h3>L-001 · SDK v4 → AWS real</h3><p>RegionEndpoint+ServiceURL manda tráfico a AWS real. Fix: ServiceURL+AuthenticationRegion + TLS pin.</p></div>
+    <div class="card"><h3>L-002 · SNS sin entrega</h3><p>SNS→SQS no entrega en el emulador. Fallback: evento interno; re-evaluar V1.</p></div>
+    <div class="card"><h3>L-003 · pwsh ausente</h3><p>Solo PS 5.1: scripts y commands.run compatibles 5.1.</p></div>
+    <div class="card"><h3>L-004 · emulator races</h3><p>Arranque del emulador con ensure tolerante (carreras de seed/credenciales).</p></div>
+    <div class="card"><h3>L-005 · CS9107 base-worker</h3><p>Patrón base-worker para background services sin warning.</p></div>
+    <div class="card"><h3>L-006 · quoting PS 5.1</h3><p>curl -d con JSON en PS 5.1 quieera comillas → Invoke-RestMethod / -o NUL.</p></div>
+    <div class="card"><h3>L-007 · mensaje en limbo</h3><p>Consumidor muerto → mensaje SQS ~30 s invisible; handlers idempotentes lo toleran; DLQ formal V1.</p></div>
+    <div class="card"><h3>L-008 · aislamiento de tests</h3><p>Estado persistente del emulador: keys/colas únicas por corrida; servicios abajo al testear.</p></div>
+    <div class="card"><h3>L-009 · EAP Stop + docker</h3><p>stderr de nativos docker mata scripts PS 5.1 en camino frío → zona EAP Continue.</p></div>
+    <div class="card"><h3>L-010 · medir p95 con HttpClient</h3><p>Cliente PS 5.1 ruidoso falsea latencias; medir con HttpClient reutilizado.</p></div>
+    <div class="card"><h3>L-011 · retry SDK multiplica timeout</h3><p>MaxErrorRetry por defecto → 4×10 s. Fix: MaxErrorRetry=0, retry vive en la app.</p></div>
+    <div class="card"><h3>L-012 · coverlet condicionado</h3><p>CollectCoverage solo corre con el target msbuild activo — umbral condicionado a env del emulador.</p></div>
+  </div>
+</section>
+
+<section id="decisions">
+  <h2>Decisiones (ADRs)</h2>
+  <div class="grid">
+    <div class="card"><h3>D-0001 · init-brain defaults</h3><p>Modo no-interactivo: language es, commands por TL, modelos glm-5.3 tier.</p></div>
+    <div class="card"><h3>D-0002 · Dominio TicketFlow</h3><p>Saga/idempotencia/cache emergen natural del dominio. Descartó pagos puros, delivery, URL shortener.</p></div>
+    <div class="card"><h3>D-0003 · Stack .NET 10 + SDK v4</h3><p>Impuesto por Negocio. Reglas endpoint/TLS/timeout; enmienda post-F01: HttpClient.Timeout efectivo + MaxErrorRetry=0.</p></div>
+    <div class="card"><h3>D-0004 · Saga por orquestación</h3><p>Process manager en Órdenes; choreography y Step Functions descartados.</p></div>
+    <div class="card"><h3>D-0005 · Estado DynamoDB</h3><p>Verificado en emulador con decremento atómico condicional.</p></div>
+    <div class="card"><h3>D-0006 · Mensajería SQS FIFO</h3><p>SNS fuera del MVP (L-002); FIFO + dedup verificados.</p></div>
+    <div class="card"><h3>D-0007 · Cache in-app</h3><p>ElastiCache sin data plane local → cache-aside in-app + invalidación explícita, X-Cache observable.</p></div>
+    <div class="card"><h3>D-0008 · Estructura 13 csproj</h3><p>Api+Core por servicio + Shared.Infrastructure; 8 patrones mapeados en README.</p></div>
+    <div class="card"><h3>D-0009 · Semántica 422 idempotencia</h3><p>Mismatch de key y asientos agotados → 422 accionable sin efectos parciales.</p></div>
+  </div>
+</section>
+
+<script>
+  document.querySelectorAll('nav button').forEach(b=>b.addEventListener('click',()=>{
+    document.querySelectorAll('nav button').forEach(x=>x.classList.toggle('on',x===b));
+    document.querySelectorAll('section').forEach(s=>s.classList.toggle('on',s.id===b.dataset.t));
+  }));
+</script>
+</body>
+</html>

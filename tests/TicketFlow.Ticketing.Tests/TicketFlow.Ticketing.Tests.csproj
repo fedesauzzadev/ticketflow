@@ -1,0 +1,46 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <!-- F-03/NFR-6: umbral â‰¥70% lÃ­neas activo en cada `dotnet test` â€” el scope es SOLO el Core
+       del servicio (Api y Shared excluidos: los .Api sin tests in-proc son deuda V1, QA F-07). -->
+  <PropertyGroup>
+    <CollectCoverage>true</CollectCoverage>
+    <!-- Umbral activo solo con el emulador configurado (modo de verificación: la cobertura
+         de los Core viene de la integración; sin env se omiten esos tests y el umbral no aplica). -->
+    <Threshold Condition="$(AWS_EMULATOR_ACCESS_KEY_ID) != ''">70</Threshold>
+    <Threshold Condition="$(AWS_EMULATOR_ACCESS_KEY_ID) == ''">0</Threshold>
+    <ThresholdType>line</ThresholdType>
+    <ThresholdStat>total</ThresholdStat>
+    <Exclude>[TicketFlow.Ticketing.Api]*,[TicketFlow.Shared.Infrastructure]*</Exclude>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="coverlet.collector" Version="10.1.0">
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+      <PrivateAssets>all</PrivateAssets>
+    </PackageReference>
+    <PackageReference Include="coverlet.msbuild" Version="10.1.0">
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+      <PrivateAssets>all</PrivateAssets>
+    </PackageReference>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />
+    <PackageReference Include="xunit" Version="2.9.3" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="3.1.4" />
+    <PackageReference Include="Xunit.SkippableFact" Version="1.5.23" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Using Include="Xunit" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Services\Ticketing\TicketFlow.Ticketing.Api\TicketFlow.Ticketing.Api.csproj" />
+  </ItemGroup>
+
+</Project>

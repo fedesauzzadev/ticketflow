@@ -1,0 +1,42 @@
+# brainloom instance configuration
+# This file belongs to YOUR project. Everything here is per-project; the kit never hardcodes it.
+
+# --- Identity ---------------------------------------------------------------
+# schema_version: version of the brain FORMAT (integer). The kit bumps it only
+#   when the format changes, and ships a migration for each bump.
+# kit_version: kit version installed / last migrated.
+schema_version: 2
+kit_version: 0.8.0
+
+# Language for generated brain files (en, es, ...).
+language: es
+
+# --- Project commands (fill via init-brain or by hand) ----------------------
+commands:
+  # Fijados por el Tech Lead (Fase 2, D-0001/D-0008). run-local.ps1 se crea en S01.
+  test:  ["dotnet", "test", "TicketFlow.sln", "--nologo"]
+  lint:  ["dotnet", "format", "TicketFlow.sln", "--verify-no-changes", "--no-restore"]
+  build: ["dotnet", "build", "TicketFlow.sln"]
+  run:   ["powershell", "-File", "./scripts/run-local.ps1"]  # L-003: pwsh no instalado, PS 5.1 sí
+
+# --- Anti-monster limits ----------------------------------------------------
+limits:
+  max_diff_lines: 300  # beyond this: stop, report, propose a split
+  max_files: 8
+
+# --- Agents -----------------------------------------------------------------
+max_parallel_agents: 1  # subagents run sequentially unless raised
+
+# Model levels -> concrete model ids from YOUR provider. Never shipped by the kit.
+# Classify by capability tier: strong = your largest reasoning model,
+# balanced = mid-tier, fast = fastest/cheapest. Routing rules: AGENTS.md.
+# Example: strong: "yourprovider/your-strongest-model"
+models:
+  strong: "zai-coding-plan/glm-5.3"
+  balanced: "zai-coding-plan/glm-5.3-highspeed"
+  fast: "zai-coding-plan/glm-5.3-flash"
+
+# --- Update check (opt-out, no telemetry, offline-tolerant) ------------------
+update_check:
+  enabled: true
+  remote_url: "C:/Users/hp/Downloads/NSDD/brainloom-remote.git"

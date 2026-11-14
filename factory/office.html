@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>🏭 Oficina — Portfolio .NET 10 · Microservicios orquestados (AWS local)</title>
+<style>
+  :root{--bg:#0f1117;--card:#181b24;--line:#262b38;--tx:#e8eaf0;--mut:#8b93a7;--acc:#5b8cff;--ok:#3fb96a;--warn:#e0a93e;--bad:#e05c5c;}
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:var(--bg);color:var(--tx);font:14px/1.5 system-ui,sans-serif;padding:24px}
+  header{display:flex;justify-content:space-between;align-items:baseline;flex-wrap:wrap;gap:8px;margin-bottom:6px}
+  h1{font-size:20px} .sub{color:var(--mut);font-size:12px}
+  .banner{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:10px 14px;margin:10px 0 18px;display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+  .banner b{color:var(--acc)}
+  .floor{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:14px;margin-bottom:20px}
+  .desk{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px;position:relative;min-height:150px}
+  .desk.busy{border-color:var(--warn);box-shadow:0 0 14px rgba(224,169,62,.12)}
+  .desk.done{border-color:var(--ok)}
+  .desk.waiting{border-color:var(--acc);box-shadow:0 0 14px rgba(91,140,255,.15)}
+  .avatar{font-size:34px;float:left;margin-right:10px}
+  .desk h3{font-size:14px} .desk .role{color:var(--mut);font-size:11px;text-transform:uppercase;letter-spacing:.5px}
+  .desk .task{clear:both;padding-top:8px;font-size:13px}
+  .bubble{margin-top:8px;background:#10131c;border:1px solid var(--line);border-radius:0 10px 10px 10px;padding:8px 10px;font-size:12.5px;color:var(--tx);min-height:38px}
+  .chip{display:inline-block;padding:2px 9px;border-radius:99px;font-size:11px;margin:6px 4px 0 0;border:1px solid var(--line);color:var(--mut)}
+  .st-busy{color:var(--warn);border-color:var(--warn)} .st-done{color:var(--ok);border-color:var(--ok)}
+  .st-waiting{color:var(--acc);border-color:var(--acc)} .st-idle{color:var(--mut)}
+  .pulse{animation:p 1.6s infinite} @keyframes p{50%{opacity:.45}}
+  h2{font-size:15px;color:var(--acc);margin-bottom:10px}
+  .feed{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:6px 0}
+  .feed div{padding:7px 14px;border-bottom:1px solid var(--line);font-size:13px;display:flex;gap:10px}
+  .feed div:last-child{border-bottom:none}
+  .feed time{color:var(--mut);font-size:11px;min-width:110px;font-family:monospace}
+  .feed .who{color:var(--acc);min-width:110px;font-weight:600}
+  a{color:var(--acc)}
+  .board{display:grid;grid-template-columns:repeat(auto-fit,minmax(165px,1fr));gap:10px;margin-bottom:12px}
+  .bcol{background:#12151f;border:1px solid var(--line);border-radius:10px;padding:10px;min-height:130px}
+  .bcol h4{font-size:11px;color:var(--mut);margin-bottom:8px;text-transform:uppercase;letter-spacing:.5px}
+  .note{background:#1e2433;border-left:3px solid var(--mut);border-radius:6px;padding:8px 10px;margin-bottom:8px;font-size:12.5px;color:var(--tx)}
+  .note .nid{color:var(--acc);font-family:monospace;font-size:10.5px;display:block}
+  .note.n-plan{border-left-color:var(--mut)} .note.n-busy{border-left-color:var(--warn)}
+  .note.n-impl{border-left-color:var(--acc)} .note.n-ver{border-left-color:var(--ok)}
+  .note.n-ship{border-left-color:var(--ok);background:#15241c}
+  .note small{color:var(--mut)}
+  .sprint-strip{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:20px;align-items:center}
+  .sprint-chip{background:var(--card);border:1px solid var(--line);border-radius:8px;padding:6px 12px;font-size:12px;color:var(--mut)}
+  .sprint-chip.on{border-color:var(--warn);color:var(--tx)} .sprint-chip.ok{border-color:var(--ok);color:var(--ok)}
+  .sprint-chip b{color:var(--tx)}
+</style>
+</head>
+<body>
+<header>
+  <h1>🏭 Oficina de la fábrica — Portfolio .NET 10 · Microservicios orquestados (AWS local)</h1>
+  <span class="sub">NSDD Software Factory · 2026-11-13</span>
+</header>
+
+<div class="banner">🎯 <b>División: Backend Cloud (.NET + AWS local) · síntesis</b> · 📍 <b>Fase 4 ✓ QA SHIP (2 rondas) — esperando review G2 del Negocio</b></div>
+
+<h2>Planning — board de sprints</h2>
+<div class="sprint-strip"><span class="sprint-chip on">S01 — H-01 Catálogo + cache</span><span class="sprint-chip">S02 — H-02 Saga</span><span class="sprint-chip">S03 — H-03 Idempotencia</span><span class="sprint-chip">S04 — H-04 Docs + demo</span></div>
+<div class="board">
+  <div class="bcol"><h4>Backlog</h4>
+    <div class="note n-plan"><span class="nid">N-1003 · H-03</span>Idempotencia HTTP + comandos</div>
+    <div class="note n-plan"><span class="nid">N-1004 · H-04</span>README + scripts de demo</div>
+  </div>
+  <div class="bcol"><h4>Planificado</h4></div>
+  <div class="bcol"><h4>En curso</h4>
+    <div class="note n-busy"><span class="nid">G2</span>Review con el Negocio — esperando aprobación</div>
+  </div>
+  <div class="bcol"><h4>Implementado</h4></div>
+  <div class="bcol"><h4>Verificado</h4>
+    <div class="note n-ver"><span class="nid">N-1001 · H-01</span>Catálogo + cache</div>
+    <div class="note n-ver"><span class="nid">N-1002 · H-02</span>Saga + compensación</div>
+    <div class="note n-ver"><span class="nid">N-1003 · H-03</span>Idempotencia</div>
+    <div class="note n-ver"><span class="nid">N-1004 · H-04</span>README + demos + p95</div>
+    <div class="note n-ship"><span class="nid">QA · SHIP</span>2 rondas · 0 críticos/mayores abiertos</div>
+  </div>
+</div>
+
+<div class="floor">
+  <div class="desk waiting pulse">
+    <span class="avatar">🧭</span>
+    <h3>Orquestador</h3><span class="role">Fábrica</span>
+    <div class="task">Presentar G2 al Negocio</div>
+    <div class="bubble">MVP completo + QA SHIP. Te muestro evidencias y te pido aprobación — sin tu OK no sigo.</div>
+    <span class="chip st-waiting">esperando G2</span>
+  </div>
+  <div class="desk done">
+    <span class="avatar">📋</span>
+    <h3>Product Owner</h3><span class="role">Fase 1 ✓</span>
+    <div class="task">Dominio + spec + backlog + roadmap</div>
+    <div class="bubble">Propuesta: TicketFlow (drops de entradas). Corte MVP H-01..H-04. Espero G2 para aprobación del Negocio.</div>
+    <span class="chip st-done">hecho</span>
+  </div>
+  <div class="desk done">
+    <span class="avatar">🏗️</span>
+    <h3>Tech Lead</h3><span class="role">Fase 2 ✓</span>
+    <div class="task">Emulador verificado + plan + 6 ADRs + sprints</div>
+    <div class="bubble">G1 ✓: plan ejecutable. DynamoDB/SQS-FIFO/S3 verificados con evidencia; SNS-entrega y Redis no → fallbacks (D-0006/D-0007).</div>
+    <span class="chip st-done">hecho</span>
+  </div>
+  <div class="desk busy pulse">
+    <span class="avatar">💻</span>
+    <h3>Dev</h3><span class="role">Fase 3 ✓</span>
+    <div class="task">4 slices: S01..S04 todos verificados</div>
+    <div class="bubble">MVP completo: 96/96 tests, p95 en objetivo, demos exit 0, corrida fría OK. Entrego a QA.</div>
+    <span class="chip st-done">hecho</span>
+  </div>
+  <div class="desk done">
+    <span class="avatar">🧪</span>
+    <h3>QA</h3><span class="role">Fase 4 ✓</span>
+    <div class="task">Veredicto final: SHIP (ronda 2)</div>
+    <div class="bubble">Fixes F-01/F-02/F-03 verificados con corridas propias. Deuda menor F-04..F-07 documentada para V1.</div>
+    <span class="chip st-done">hecho</span>
+  </div>
+</div>
+
+<h2>Actividad del día</h2>
+<div class="feed">
+  <div><time>2026-11-13</time><span class="who">Orquestador</span><span>Fase 0 ✓: intake registrado + brain inicializado (validado) + división Backend Cloud.</span></div>
+  <div><time>2026-11-13</time><span class="who">PO</span><span>Dominio propuesto: TicketFlow — saga de compra, idempotencia y cache emergen del dominio (ADR D-0002).</span></div>
+  <div><time>2026-11-13</time><span class="who">PO</span><span>Backlog MVP cortado en H-01..H-04 (catálogo+cache, saga, idempotencia, docs ejecutables) + roadmap V0/V1/V2.</span></div>
+  <div><time>2026-11-13</time><span class="who">PO</span><span>Brain: 4 nodos N-1001..N-1004 planned con AC observables — validate-brain: valid, 0 errores.</span></div>
+  <div><time>2026-11-13</time><span class="who">Orquestador</span><span>Fase 2: Tech Lead lanzado — verifica servicios reales del emulador y produce factory/plan.md + ADRs.</span></div>
+  <div><time>2026-11-13</time><span class="who">Tech Lead</span><span>Emulador verificado con AWS SDK v4 (evidencia en brain/evidence/): DynamoDB ✓ (decremento atómico), SQS FIFO ✓ (dedup), S3 ✓; SNS entrega ✗ y Redis ✗ → fallbacks.</span></div>
+  <div><time>2026-11-13</time><span class="who">Tech Lead</span><span>factory/plan.md: 8 NFRs medibles, sprints S01..S04, estrategia QA. ADRs D-0003..D-0008. G1 ✓ plan ejecutable.</span></div>
+  <div><time>2026-11-13</time><span class="who">Learnings</span><span>L-001: SDK v4 con RegionEndpoint+ServiceURL manda a AWS real → usar ServiceURL+AuthenticationRegion. L-002: SNS→SQS sin entrega en emulador.</span></div>
+  <div><time>2026-11-13</time><span class="who">Orquestador</span><span>Fase 3 Build: Dev lanzado en S01 (H-01 catálogo + cache).</span></div>
+  <div><time>2026-11-13</time><span class="who">Dev</span><span>S01 ✓ N-1001 verified: 34/34 tests (24 unit + 10 integración real), build 0 warnings-as-errors, evidencia MISS→HIT y restart-survival. Nodo actualizado, brain valid.</span></div>
+  <div><time>2026-11-13</time><span class="who">Dev</span><span>Desvíos reportados: pwsh ausente (L-003, run re-estampado a PS 5.1), 4 csproj vs 13 del plan (solo lo que S01 necesita), HybridCache vía NuGet 11.0.</span></div>
+  <div><time>2026-11-13</time><span class="who">Orquestador</span><span>S02: Dev lanzado en H-02 — saga de compra completa con compensación (el slice más grande).</span></div>
+  <div><time>2026-11-13</time><span class="who">Dev</span><span>S02 ✓ N-1002 verified: saga PENDING→…→TICKETS_ISSUED ~1,8 s, compensación exacta (499 restaurado), QR en S3, 88/88 tests. 13/13 csproj según D-0008.</span></div>
+  <div><time>2026-11-13</time><span class="who">Dev</span><span>Learnings nuevos: L-005/L-006/L-007 (base-worker CS9107, quoting PS 5.1, residuo SQS visibility ~30 s tolerado por handlers idempotentes).</span></div>
+  <div><time>2026-11-13</time><span class="who">Orquestador</span><span>S03: Dev lanzado en H-03 — idempotencia HTTP + dedup de comandos.</span></div>
+  <div><time>2026-11-14</time><span class="who">Dev</span><span>S03 ✓ N-1003 verified: replay misma key ⇒ misma compra (498→498), duplicado interno con log real de descarte, agotado → 422. 96/96 tests ×2 corridas. ADR D-0009 + L-008.</span></div>
+  <div><time>2026-11-14</time><span class="who">Orquestador</span><span>S04: Dev lanzado en H-04 — README ejecutable + scripts demo + medición p95.</span></div>
+  <div><time>2026-11-14</time><span class="who">Dev</span><span>S04 ✓ N-1004 verified: quickstart corrida fría OK, demos exit 0, p95 HIT 1,4 ms / POST 20,7 ms / saga 790 ms (todo en objetivo). MVP H-01..H-04 completo. Fix blocker run-local (L-009), p95 cliente ruidoso (L-010).</span></div>
+  <div><time>2026-11-14</time><span class="who">Orquestador</span><span>Fase 4: QA adversarial lanzado (security-audit + bordes + gates de división + DoD vendible).</span></div>
+  <div><time>2026-11-14</time><span class="who">QA</span><span>Veredicto SHIP, 0 críticos. Mayores: F-01 timeout HttpClient infinito con emulador pausado · F-02 sin LICENSE/git. Gates de división 4/4, 26 payloads hostiles sin 5xx, idempotencia bajo concurrencia ✓, cero oversell ✓.</span></div>
+  <div><time>2026-11-14</time><span class="who">Orquestador</span><span>Dev loop 1/2: fix F-01 + F-02 + F-03 (umbral cobertura cableado). Luego retest QA y G2.</span></div>
+  <div><time>2026-11-14</time><span class="who">Dev</span><span>Fixes: timeout 10 s efectivo (10,05 s medidos, antes >150 s) + LICENSE/CHANGELOG 0.1.0 + umbral cobertura mordiendo. 98/98 tests. L-011/L-012.</span></div>
+  <div><time>2026-11-14</time><span class="who">QA</span><span>Ronda 2: VEREDICTO FINAL SHIP — 3/3 fixes verificados con evidencia propia, regresión verde, demo exit 0. 0 críticos/mayores abiertos.</span></div>
+  <div><time>2026-11-14</time><span class="who">Orquestador</span><span>Fase 5 ✓: dashboard + scorecard regenerados. G2 presentado al Negocio — la fábrica se detiene acá hasta aprobación.</span></div>
+</div>
+
+<p class="sub" style="margin-top:14px">Reporte detallado: <a href="dashboard.html">dashboard del proyecto</a> · Esta vista se regenera tras cada evento de la corrida (fase, slice, ronda de QA, gate) y se reabre en el panel de Review.</p>
+</body>
+</html>

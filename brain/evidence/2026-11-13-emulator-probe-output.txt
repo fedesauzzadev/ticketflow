@@ -1,0 +1,40 @@
+﻿  [tls] raw HttpClient + CA pineada -> ok
+  ListTables -> []
+  tabla ACTIVE
+  GetItem val=10
+  UpdateItem condicional -> val=9
+  rechazo correcto: ConditionalCheckFailedException
+  queueUrl=https://sqs.us-east-1.amazonaws.com/000000000000/probe-queue.fifo
+  messageId=2e1fbfe2-bccc-4f74-b99f-a5dd7689a387
+  recibidos=1
+  topicArn=arn:aws:sns:us-east-1:000000000000:probe-topic.fifo
+  queueArn=arn:aws:sqs:us-east-1:000000000000:probe-queue.fifo
+  subscription=arn:aws:sns:us-east-1:000000000000:probe-topic.fifo:c5c5b0e2-8531-4c9b-aab5-760dc51a1c10
+  messageId=20a5637f-a7e2-43f0-9fa5-4f789aa54887
+  mensajes fanout recibidos=0
+  buckets=[probe-bucket]
+  body=QR-PROBE-123
+
+==== RESUMEN ====
+dynamodb   ListTables                                       OK
+dynamodb   CreateTable                                      OK
+dynamodb   DescribeTable (wait ACTIVE)                      OK
+dynamodb   PutItem                                          OK
+dynamodb   GetItem                                          OK
+dynamodb   UpdateItem + ConditionExpression (decremento atomico) OK
+dynamodb   ConditionExpression rechaza cuando no cumple (anti-oversell) OK
+sqs        ListQueues                                       OK
+sqs        CreateQueue (.fifo + ContentBasedDeduplication)  OK
+sqs        SendMessage (fifo, dedup id)                     OK
+sqs        ReceiveMessage + DeleteMessage                   OK
+sns        ListTopics                                       OK
+sns        CreateTopic (.fifo)                              OK
+sns        Subscribe (protocolo sqs, queue ARN)             OK
+sns        Publish (fifo)                                   OK
+sns->sqs   fanout: ReceiveMessage en cola suscrita          FAIL [Exception] System.Exception: fanout SNS->SQS no entrego ningun mensaje    at Program.<>c__DisplayClass0_0.<<<Main>$>b__20>d.MoveNext() in C:\Users\redacted\AppData\Local\Temp\opencode\emulator-probe\Program.cs:line 27
+s3         ListBuckets                                      OK
+s3         PutBucket                                        OK
+s3         PutObject                                        OK
+s3         GetObject                                        OK
+
+19/20 OK, 1 FAIL
