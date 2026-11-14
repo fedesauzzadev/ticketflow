@@ -18,6 +18,10 @@ public static class SagaTypes
     public const string PaymentApproved = "payment-approved";
     public const string PaymentDeclined = "payment-declined";
     public const string TicketsIssued = "tickets-issued";
+
+    // Evento de resiliencia (D-0012): lo emite el worker que agotó sus reintentos hacia
+    // Órdenes — el process manager marca la compra FAILED (y compensa si había reserva).
+    public const string StepFailed = "step-failed";
 }
 
 /// <summary>Colas FIFO de la saga (D-0006): una de comandos por servicio + eventos hacia Órdenes.</summary>
@@ -81,3 +85,4 @@ public sealed record SeatsReleasedEvent(string EventId);
 public sealed record PaymentApprovedEvent(decimal Amount);
 public sealed record PaymentDeclinedEvent(string Reason);
 public sealed record TicketsIssuedEvent(IReadOnlyList<string> TicketIds);
+public sealed record StepFailedEvent(string Step, string Reason);

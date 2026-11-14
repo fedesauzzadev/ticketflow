@@ -15,10 +15,15 @@ builder.Logging.AddServiceTraceLogging(); // JSON + Timestamp ISO UTC (contrato 
 
 var awsOptions = EmulatorAwsOptions.FromEnvironment();
 builder.Services.AddSingleton(awsOptions);
-builder.Services.AddSingleton<IAmazonDynamoDB>(_ => EmulatorAwsClients.CreateDynamoDb(awsOptions));
-builder.Services.AddSingleton<IAmazonSQS>(_ => EmulatorAwsClients.CreateSqs(awsOptions));
-builder.Services.AddSingleton<IAmazonS3>(_ => EmulatorAwsClients.CreateS3(awsOptions));
+// ILoggerFactory → circuit breakers por downstream loguean apertura/cierre (D-0012).
+builder.Services.AddSingleton<IAmazonDynamoDB>(
+    sp => EmulatorAwsClients.CreateDynamoDb(awsOptions, sp.GetRequiredService<ILoggerFactory>()));
+builder.Services.AddSingleton<IAmazonSQS>(
+    sp => EmulatorAwsClients.CreateSqs(awsOptions, sp.GetRequiredService<ILoggerFactory>()));
+builder.Services.AddSingleton<IAmazonS3>(
+    sp => EmulatorAwsClients.CreateS3(awsOptions, sp.GetRequiredService<ILoggerFactory>()));
 builder.Services.AddSingleton<SqsSagaTransport>();
+builder.Services.AddSingleton<TicketFlow.Shared.Infrastructure.FailureInjector>(); // D-0012: /admin/failure
 builder.Services.AddSingleton<DynamoDbTicketRepository>();
 builder.Services.AddSingleton<ITicketRepository>(sp => sp.GetRequiredService<DynamoDbTicketRepository>());
 builder.Services.AddSingleton<IQrPayloadStore, S3QrPayloadStore>();
@@ -46,6 +51,9 @@ app.UseExceptionHandler(errorApp => errorApp.Run(ctx =>
 
 app.MapGet("/health", () => Results.Ok(new { status = "ok" }));
 
+// Resiliencia observable (D-0012): inyección de fallos en vivo + DLQ del worker de este servicio.
+app.MapResilienceAdmin(SagaQueues.TicketingCommands);
+
 // Entrada referenciable (H-02 AC1): {id, purchase_id, event_id, seat, qr_s3_key}.
 app.MapGet("/tickets/{id}", async (string id, ITicketRepository tickets, CancellationToken ct) =>
 {
@@ -71,8 +79,9 @@ public sealed class TicketingWorker(
     IAmazonSQS sqs,
     SqsSagaTransport transport,
     TicketingSagaHandler handler,
+    TicketFlow.Shared.Infrastructure.FailureInjector failureInjector,
     ILogger<TicketingWorker> logger)
-    : SqsSagaWorker(sqs, transport, SagaQueues.TicketingCommands, logger)
+    : SqsSagaWorker(sqs, transport, SagaQueues.TicketingCommands, logger, failureInjector)
 {
     protected override async Task HandleAsync(SagaEnvelope envelope, CancellationToken ct)
     {

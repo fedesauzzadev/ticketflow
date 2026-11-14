@@ -14,8 +14,9 @@ public sealed class CatalogSagaWorker(
     IAmazonSQS sqs,
     SqsSagaTransport transport,
     CatalogSagaHandler handler,
+    TicketFlow.Shared.Infrastructure.FailureInjector failureInjector,
     ILogger<CatalogSagaWorker> logger)
-    : SqsSagaWorker(sqs, transport, SagaQueues.CatalogCommands, logger)
+    : SqsSagaWorker(sqs, transport, SagaQueues.CatalogCommands, logger, failureInjector)
 {
     protected override async Task HandleAsync(SagaEnvelope envelope, CancellationToken ct)
     {

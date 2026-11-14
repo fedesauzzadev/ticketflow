@@ -9,7 +9,8 @@ namespace TicketFlow.Orders.Core.Application;
 /// entrante aplica una transición CAS; SOLO si la transición gana se emite el comando siguiente —
 /// un evento duplicado no vuelve a emitir (hook de H-03 AC2). Flujo:
 /// seats-reserved→authorize-payment · payment-approved→issue-tickets · tickets-issued→TICKETS_ISSUED ·
-/// payment-declined→release-seats (compensación) · seats-released→FAILED · seats-unavailable→FAILED.
+/// payment-declined→release-seats (compensación) · seats-released→FAILED · seats-unavailable→FAILED ·
+/// step-failed (D-0012, reintentos agotados)→FAILED directo (PENDING) o compensación (con reserva).
 /// </summary>
 public sealed class SagaProcessManager(
     IPurchaseRepository purchases,
@@ -93,11 +94,15 @@ public sealed class SagaProcessManager(
             case SagaTypes.SeatsReleased:
             {
                 // Compensación completada: ahora sí FAILED con el motivo visible (H-02 AC3).
+                // Desde SEATS_RESERVED (payment-declined/step-failed) o PAYMENT_APPROVED
+                // (step-failed con pago ya autorizado — D-0012).
                 var purchase = await purchases.GetAsync(envelope.PurchaseId, ct);
                 if (purchase is null) return;
+                var reason = purchase.PendingFailureReason ?? "pago rechazado y asientos liberados";
                 if (await purchases.TryTransitionAsync(envelope.PurchaseId,
-                        PurchaseStatus.SEATS_RESERVED, PurchaseStatus.FAILED,
-                        reason: purchase.PendingFailureReason ?? "pago rechazado y asientos liberados", ct: ct))
+                        PurchaseStatus.SEATS_RESERVED, PurchaseStatus.FAILED, reason: reason, ct: ct)
+                    || await purchases.TryTransitionAsync(envelope.PurchaseId,
+                        PurchaseStatus.PAYMENT_APPROVED, PurchaseStatus.FAILED, reason: reason, ct: ct))
                     logger.LogInformation(
                         "compra {PurchaseId}: paso 'seats-released' → FAILED — compensación completada, asiento liberado",
                         envelope.PurchaseId);
@@ -112,6 +117,35 @@ public sealed class SagaProcessManager(
                     logger.LogInformation(
                         "compra {PurchaseId}: paso 'seats-unavailable' → FAILED ({Reason})",
                         envelope.PurchaseId, evt.Reason);
+                break;
+            }
+
+            case SagaTypes.StepFailed:
+            {
+                // Un worker de comando agotó sus 3 intentos (D-0012): la compra SIEMPRE queda
+                // terminal con motivo. PENDING (falló antes de reservar) → FAILED directo;
+                // con reserva hecha (SEATS_RESERVED/PAYMENT_APPROVED) → compensación reutilizada.
+                var evt = envelope.PayloadAs<StepFailedEvent>();
+                if (await purchases.TryTransitionAsync(envelope.PurchaseId,
+                        PurchaseStatus.PENDING, PurchaseStatus.FAILED, reason: evt.Reason, ct: ct))
+                {
+                    logger.LogInformation(
+                        "compra {PurchaseId}: paso '{Step}' falló sin reserva previa → FAILED ({Reason})",
+                        envelope.PurchaseId, evt.Step, evt.Reason);
+                    break;
+                }
+                if (!await purchases.TryNoteFailureAsync(envelope.PurchaseId, evt.Reason, ct))
+                {
+                    Ignored(envelope, "fallo ya anotado o compra no compensable (duplicado de step-failed?)");
+                    break;
+                }
+                var purchase = await purchases.GetAsync(envelope.PurchaseId, ct);
+                if (purchase is null) return;
+                await outbox.EnqueueAsync(SagaQueues.CatalogCommands, SagaTypes.ReleaseSeats,
+                    envelope.PurchaseId, new ReleaseSeatsCommand(purchase.EventId, purchase.Seats), ct);
+                logger.LogInformation(
+                    "compra {PurchaseId}: paso '{Step}' falló con reserva hecha ({Reason}) → compensación: emito release-seats",
+                    envelope.PurchaseId, evt.Step, evt.Reason);
                 break;
             }
 

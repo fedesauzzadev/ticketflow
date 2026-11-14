@@ -70,28 +70,84 @@ public sealed class SqsSagaTransport(IAmazonSQS sqs)
             MessageDeduplicationId = $"{envelope.Type}:{envelope.PurchaseId}",
         }, ct);
     }
+
+    /// <summary>DLQ aplicativa de una cola (D-0012): &lt;cola&gt;-dlq.fifo — inspeccionable con GET /admin/dlq.</summary>
+    public static string DlqQueueOf(string queueName) =>
+        queueName.EndsWith(".fifo", StringComparison.Ordinal)
+            ? queueName[..^".fifo".Length] + "-dlq.fifo"
+            : queueName + "-dlq.fifo";
+
+    /// <summary>
+    /// Peek de la DLQ (D-0012): receive con VisibilityTimeout=0 y SIN delete — el mensaje
+    /// sigue en la cola y vuelve a estar visible de inmediato (inspeccionable N veces).
+    /// shortcut: una sola página de 10 — la DLQ es evidencia de fallos, no cola de trabajo.
+    /// </summary>
+    public async Task<IReadOnlyList<SagaDlqEntry>> PeekDlqAsync(string consumedQueueName, CancellationToken ct)
+    {
+        var url = await EnsureQueueAsync(DlqQueueOf(consumedQueueName), ct);
+        var response = await sqs.ReceiveMessageAsync(new ReceiveMessageRequest
+        {
+            QueueUrl = url,
+            MaxNumberOfMessages = 10,
+            VisibilityTimeout = 0,
+        }, ct);
+        if (response.Messages is not { Count: > 0 }) return []; // como L-005: Messages=null si vacía
+        return [.. response.Messages.Select(SagaDlqEntry.From)];
+    }
+}
+
+/// <summary>Vista de un mensaje muerto para GET /admin/dlq (sin exponer el receipt handle).</summary>
+public sealed record SagaDlqEntry(string Type, string PurchaseId, string? Payload, string MessageId)
+{
+    public static SagaDlqEntry From(Message message)
+    {
+        try
+        {
+            var envelope = SagaJson.Deserialize(message.Body);
+            return new SagaDlqEntry(envelope.Type, envelope.PurchaseId,
+                envelope.Payload?.GetRawText(), message.MessageId);
+        }
+        catch (Exception ex) when (ex is JsonException or InvalidOperationException)
+        {
+            // Frontera (NFR-1): cuerpo corrupto se reporta acotado, no rompe el endpoint.
+            var body = message.Body.Length <= 200 ? message.Body : message.Body[..200];
+            return new SagaDlqEntry("(inválido)", "", body, message.MessageId);
+        }
+    }
 }
 
 /// <summary>
-/// Worker base que consume una cola FIFO de la saga: receive → handler → delete solo tras éxito.
-/// Si el handler falla, el mensaje NO se borra y SQS lo reentrega tras el visibility timeout
-/// (handlers idempotentes por diseño: claims condicionales en DynamoDB). Sobre inválido (JSON
-/// roto o type/purchase_id ausente): se descarta con log de error — frontera validada (NFR-1).
+/// Worker base que consume una cola FIFO de la saga: receive → (backoff) → handler → delete
+/// solo tras éxito. Backoff D-0012: hasta 3 intentos por entrega (1 original + 2 reintentos,
+/// esperas 0,5 s / 1 s crecientes) — seguro porque los handlers son idempotentes. Agotados
+/// los intentos: DLQ aplicativa &lt;cola&gt;-dlq.fifo + evento step-failed → Órdenes marca la
+/// compra FAILED (y compensa si había reserva) + delete del origen: nada queda en limbo.
+/// Antes de cada intento consulta el <see cref="FailureInjector"/> (fallo inyectable, D-0012).
+/// Sobre inválido (JSON roto o type/purchase_id ausente): descartado con log — frontera (NFR-1).
 /// La base es la dueña del transporte (CS9107): los handlers usan <see cref="Transport"/>.
 /// </summary>
 public abstract class SqsSagaWorker : BackgroundService
 {
+    /// <summary>Esperas crecientes entre intentos (D-0012): AC1 exige backoff visible en timestamps.</summary>
+    private static readonly TimeSpan[] RetryDelays = [TimeSpan.FromMilliseconds(500), TimeSpan.FromSeconds(1)];
+
     protected SqsSagaTransport Transport { get; }
+    /// <summary>Los workers de comandos reportan su fallo terminal a Órdenes (evento step-failed).</summary>
+    protected virtual bool EmitsStepFailed => true;
+
     private readonly IAmazonSQS _sqs;
     private readonly string _queueName;
     private readonly ILogger _logger;
+    private readonly FailureInjector? _failureInjector;
 
-    protected SqsSagaWorker(IAmazonSQS sqs, SqsSagaTransport transport, string queueName, ILogger logger)
+    protected SqsSagaWorker(IAmazonSQS sqs, SqsSagaTransport transport, string queueName, ILogger logger,
+        FailureInjector? failureInjector = null)
     {
         _sqs = sqs;
         Transport = transport;
         _queueName = queueName;
         _logger = logger;
+        _failureInjector = failureInjector;
     }
 
     protected abstract Task HandleAsync(SagaEnvelope envelope, CancellationToken ct);
@@ -152,18 +208,68 @@ public abstract class SqsSagaWorker : BackgroundService
             return;
         }
 
-        try
+        // Backoff D-0012: 3 intentos por entrega con esperas crecientes; agotados → DLQ aplicativa.
+        for (var attempt = 1; ; attempt++)
         {
-            await HandleAsync(envelope, ct);
-            await DeleteAsync(queueUrl, message, ct); // éxito ⇒ recién ahora se borra
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "handler de '{Type}' (compra {PurchaseId}) falló en {Queue}; " +
-                                "vuelve a entregarse tras el visibility timeout",
-                envelope.Type, envelope.PurchaseId, _queueName);
+            try
+            {
+                if (_failureInjector is { } injector && injector.TryConsume(envelope.Type) is { } injected)
+                    throw new InjectedFailureException(
+                        $"fallo inyectado ({injected.Mode}) en el paso '{injected.Step}' " +
+                        $"(compra {envelope.PurchaseId})");
+
+                await HandleAsync(envelope, ct);
+                await DeleteAsync(queueUrl, message, ct); // éxito ⇒ recién ahora se borra
+                return;
+            }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested)
+            {
+                throw; // shutdown del host: no es fallo del handler, no cuenta para el backoff
+            }
+            catch (Exception ex) when (attempt <= RetryDelays.Length)
+            {
+                _logger.LogWarning(ex,
+                    "intento {Attempt}/3 de '{Type}' (compra {PurchaseId}) falló en {Queue}; " +
+                    "reintento en {Delay} ms (backoff)",
+                    attempt, envelope.Type, envelope.PurchaseId, _queueName,
+                    RetryDelays[attempt - 1].TotalMilliseconds);
+                await Task.Delay(RetryDelays[attempt - 1], ct);
+            }
+            catch (Exception ex)
+            {
+                await DeadLetterAsync(queueUrl, message, envelope, ex, ct);
+                return;
+            }
         }
     }
+
+    /// <summary>
+    /// Agotados los 3 intentos (D-0012): cuerpo original → DLQ aplicativa, evento step-failed →
+    /// Órdenes (FAILED terminal + compensación) y recién entonces delete del origen. Si algo de
+    /// esto falla (p. ej. emulador caído), el origen NO se borra: la entrega se reintenta.
+    /// </summary>
+    private async Task DeadLetterAsync(string queueUrl, Message message, SagaEnvelope envelope, Exception cause,
+        CancellationToken ct)
+    {
+        var dlqName = SqsSagaTransport.DlqQueueOf(_queueName);
+        await Transport.SendAsync(dlqName, envelope, ct);
+
+        if (EmitsStepFailed)
+            await Transport.SendAsync(SagaQueues.OrdersEvents, new SagaEnvelope(
+                SagaTypes.StepFailed, envelope.PurchaseId,
+                JsonSerializer.SerializeToElement(
+                    new StepFailedEvent(envelope.Type, ReasonOf(envelope, cause)), SagaJson.Options)), ct);
+
+        await DeleteAsync(queueUrl, message, ct);
+        _logger.LogError(
+            "mensaje '{Type}' (compra {PurchaseId}) agotó 3 intentos en {Queue}: → {Dlq}" +
+            (EmitsStepFailed ? " + evento step-failed a Órdenes" : ""),
+            envelope.Type, envelope.PurchaseId, _queueName, dlqName);
+    }
+
+    // Sin internals del downstream en el motivo (viaja a la respuesta HTTP de la compra, NFR-4).
+    private static string ReasonOf(SagaEnvelope envelope, Exception cause) =>
+        $"el paso '{envelope.Type}' falló tras 3 intentos ({cause.GetType().Name})";
 
     private async Task DeleteAsync(string queueUrl, Message message, CancellationToken ct)
     {

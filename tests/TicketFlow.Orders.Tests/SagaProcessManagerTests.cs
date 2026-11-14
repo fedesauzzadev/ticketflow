@@ -1,4 +1,4 @@
-using System.Text.Json;
+﻿using System.Text.Json;
 using Microsoft.Extensions.Logging.Abstractions;
 using TicketFlow.Orders.Core.Application;
 using TicketFlow.Orders.Core.Domain;
@@ -45,7 +45,7 @@ public sealed class SagaProcessManagerTests
         public Task<bool> TryNoteFailureAsync(string purchaseId, string reason, CancellationToken ct)
         {
             if (!Store.TryGetValue(purchaseId, out var purchase)
-                || purchase.Status != PurchaseStatus.SEATS_RESERVED
+                || purchase.Status is not (PurchaseStatus.SEATS_RESERVED or PurchaseStatus.PAYMENT_APPROVED)
                 || purchase.PendingFailureReason is not null)
                 return Task.FromResult(false);
             Store[purchaseId] = purchase with { PendingFailureReason = reason };
@@ -177,6 +177,77 @@ public sealed class SagaProcessManagerTests
 
         Assert.Single(outbox.Enqueued); // un solo authorize-payment (hook H-03 AC2)
         Assert.Equal(PurchaseStatus.SEATS_RESERVED, purchases.Store[id].Status);
+    }
+
+    // --- D-0012 (N-2002 AC2/AC3): evento step-failed (reintentos agotados) ------------
+
+    [Fact]
+    public async Task Step_failed_on_PENDING_fails_directly_without_compensation()
+    {
+        var id = PurchaseIds.New();
+        var (manager, purchases, outbox) = Started(id); // sigue PENDING: falló ANTES de reservar
+
+        await manager.HandleAsync(
+            Env(SagaTypes.StepFailed, id, new StepFailedEvent("reserve-seats", "el paso 'reserve-seats' falló tras 3 intentos (InvalidOperationException)")), CT);
+
+        var failed = purchases.Store[id];
+        Assert.Equal(PurchaseStatus.FAILED, failed.Status); // terminal explícito con motivo (AC2)
+        Assert.Contains("reserve-seats", failed.FailureReason);
+        Assert.Empty(outbox.Enqueued); // sin reserva ⇒ sin compensación
+    }
+
+    [Fact]
+    public async Task Step_failed_on_SEATS_RESERVED_compensates_and_fails_on_seats_released()
+    {
+        var id = PurchaseIds.New();
+        var (manager, purchases, outbox) = Started(id, seats: 2);
+        await manager.HandleAsync(Env(SagaTypes.SeatsReserved, id, new SeatsReservedEvent("evt-test", 100m)), CT);
+
+        await manager.HandleAsync(
+            Env(SagaTypes.StepFailed, id, new StepFailedEvent("authorize-payment", "el paso 'authorize-payment' falló tras 3 intentos (AmazonServiceException)")), CT);
+
+        var release = Assert.Single(outbox.Enqueued, e => e.Type == SagaTypes.ReleaseSeats);
+        var command = Assert.IsType<ReleaseSeatsCommand>(release.Payload);
+        Assert.Equal(("evt-test", 2), (command.EventId, command.Seats)); // compensación reutilizada (D-0012)
+        Assert.Equal(PurchaseStatus.SEATS_RESERVED, purchases.Store[id].Status); // espera al seats-released
+
+        await manager.HandleAsync(Env(SagaTypes.SeatsReleased, id, new SeatsReleasedEvent("evt-test")), CT);
+        var failed = purchases.Store[id];
+        Assert.Equal(PurchaseStatus.FAILED, failed.Status);
+        Assert.Contains("authorize-payment", failed.FailureReason); // el motivo del paso que falló
+    }
+
+    [Fact]
+    public async Task Step_failed_on_PAYMENT_APPROVED_compensates_and_fails_on_seats_released()
+    {
+        var id = PurchaseIds.New();
+        var (manager, purchases, outbox) = Started(id, seats: 1);
+        await manager.HandleAsync(Env(SagaTypes.SeatsReserved, id, new SeatsReservedEvent("evt-test", 70m)), CT);
+        await manager.HandleAsync(Env(SagaTypes.PaymentApproved, id, new PaymentApprovedEvent(70m)), CT);
+
+        // issue-tickets agota reintentos con el pago ya autorizado: igual libera el asiento.
+        await manager.HandleAsync(
+            Env(SagaTypes.StepFailed, id, new StepFailedEvent("issue-tickets", "el paso 'issue-tickets' falló tras 3 intentos (AmazonServiceException)")), CT);
+
+        Assert.Single(outbox.Enqueued, e => e.Type == SagaTypes.ReleaseSeats);
+        Assert.Equal(PurchaseStatus.PAYMENT_APPROVED, purchases.Store[id].Status);
+
+        await manager.HandleAsync(Env(SagaTypes.SeatsReleased, id, new SeatsReleasedEvent("evt-test")), CT);
+        Assert.Equal(PurchaseStatus.FAILED, purchases.Store[id].Status); // terminal también desde PA
+    }
+
+    [Fact]
+    public async Task Duplicate_step_failed_is_ignored_without_double_release()
+    {
+        var id = PurchaseIds.New();
+        var (manager, purchases, outbox) = Started(id);
+        await manager.HandleAsync(Env(SagaTypes.SeatsReserved, id, new SeatsReservedEvent("evt-test", 90m)), CT);
+        var stepFailed = Env(SagaTypes.StepFailed, id, new StepFailedEvent("authorize-payment", "falló"));
+
+        await manager.HandleAsync(stepFailed, CT);
+        await manager.HandleAsync(stepFailed, CT); // duplicado (redelivery)
+
+        Assert.Single(outbox.Enqueued, e => e.Type == SagaTypes.ReleaseSeats); // una sola compensación
     }
 
     private static CancellationToken CT => CancellationToken.None;

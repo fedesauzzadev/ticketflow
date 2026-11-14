@@ -19,9 +19,13 @@ builder.Logging.AddServiceTraceLogging();
 // Config 100% por env, validada fail-fast al arranque (NFR-1 / D-0003).
 var awsOptions = EmulatorAwsOptions.FromEnvironment();
 builder.Services.AddSingleton(awsOptions);
-builder.Services.AddSingleton<IAmazonDynamoDB>(_ => EmulatorAwsClients.CreateDynamoDb(awsOptions));
-builder.Services.AddSingleton<IAmazonSQS>(_ => EmulatorAwsClients.CreateSqs(awsOptions));
+// ILoggerFactory → circuit breakers por downstream loguean apertura/cierre (D-0012).
+builder.Services.AddSingleton<IAmazonDynamoDB>(
+    sp => EmulatorAwsClients.CreateDynamoDb(awsOptions, sp.GetRequiredService<ILoggerFactory>()));
+builder.Services.AddSingleton<IAmazonSQS>(
+    sp => EmulatorAwsClients.CreateSqs(awsOptions, sp.GetRequiredService<ILoggerFactory>()));
 builder.Services.AddSingleton<SqsSagaTransport>();
+builder.Services.AddSingleton<TicketFlow.Shared.Infrastructure.FailureInjector>(); // D-0012: /admin/failure
 
 builder.Services.AddSingleton<DynamoDbPurchaseRepository>();
 builder.Services.AddSingleton<IPurchaseRepository>(sp => sp.GetRequiredService<DynamoDbPurchaseRepository>());
@@ -58,6 +62,9 @@ app.UseExceptionHandler(errorApp => errorApp.Run(ctx =>
     Results.Problem(statusCode: 500, title: "Internal error", type: "internal-error").ExecuteAsync(ctx)));
 
 app.MapGet("/health", () => Results.Ok(new { status = "ok" }));
+
+// Resiliencia observable (D-0012): inyección de fallos en vivo + DLQ del worker de eventos.
+app.MapResilienceAdmin(SagaQueues.OrdersEvents);
 
 // Saga (H-02 AC1): acepta la compra y responde 201 inmediato con purchase_id (D-0004, polling).
 // Idempotencia observable (H-03, D-0009): misma key + mismo body ⇒ misma compra sin efectos

@@ -1,4 +1,4 @@
-using System.Diagnostics;
+﻿using System.Diagnostics;
 using System.Net;
 using System.Net.Sockets;
 using System.Security.Cryptography;
@@ -19,7 +19,7 @@ public class PinnedCaHttpClientFactoryTests
     public void CreateHttpClient_lleva_el_timeout_del_client_config()
     {
         using var ca = SelfSigned();
-        var factory = new PinnedCaHttpClientFactory(ca);
+        var factory = new PinnedCaHttpClientFactory(ca, "test");
         var config = new AmazonDynamoDBConfig { Timeout = TimeSpan.FromSeconds(10) };
 
         using var http = factory.CreateHttpClient(config);
@@ -44,7 +44,7 @@ public class PinnedCaHttpClientFactoryTests
         try
         {
             using var ca = SelfSigned();
-            var factory = new PinnedCaHttpClientFactory(ca);
+            var factory = new PinnedCaHttpClientFactory(ca, "test");
             var config = new AmazonDynamoDBConfig { Timeout = TimeSpan.FromSeconds(10) };
             using var http = factory.CreateHttpClient(config);
 

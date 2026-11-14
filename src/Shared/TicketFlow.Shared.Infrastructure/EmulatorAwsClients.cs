@@ -3,6 +3,7 @@ using Amazon.DynamoDBv2;
 using Amazon.Runtime;
 using Amazon.S3;
 using Amazon.SQS;
+using Microsoft.Extensions.Logging;
 
 namespace TicketFlow.Shared.Infrastructure;
 
@@ -11,8 +12,11 @@ namespace TicketFlow.Shared.Infrastructure;
 /// el root de la cadena servida DEBE ser exactamente la CA pineada. Un endpoint que no
 /// presente esa cadena (p. ej. AWS real, por mala config) es rechazado — el gate de
 /// división "cero llamadas a nube real" se cumple por diseño, no por convención.
+/// Envuelve el handler con <see cref="CircuitBreakerHandler"/> (D-0012): un breaker por
+/// downstream (una instancia de HttpClient por cliente del SDK).
 /// </summary>
-public sealed class PinnedCaHttpClientFactory(X509Certificate2 ca) : HttpClientFactory
+public sealed class PinnedCaHttpClientFactory(X509Certificate2 ca, string downstream, ILoggerFactory? loggerFactory = null)
+    : HttpClientFactory
 {
     public override HttpClient CreateHttpClient(IClientConfig clientConfig)
     {
@@ -25,7 +29,9 @@ public sealed class PinnedCaHttpClientFactory(X509Certificate2 ca) : HttpClientF
         };
         // QA F-01: con factory custom el SDK NO impone ClientConfig.Timeout — el HttpClient
         // debe llevarlo (10 s, NFR-3) o el request cuelga indefinidamente contra un peer congelado.
-        return new HttpClient(handler) { Timeout = clientConfig.Timeout ?? TimeSpan.FromSeconds(10) };
+        var breaker = new CircuitBreakerHandler(downstream, loggerFactory?.CreateLogger("circuit-breaker"));
+        breaker.InnerHandler = handler;
+        return new HttpClient(breaker) { Timeout = clientConfig.Timeout ?? TimeSpan.FromSeconds(10) };
     }
 }
 
@@ -36,9 +42,10 @@ public static class EmulatorAwsClients
     /// ServiceURL + AuthenticationRegion, NUNCA RegionEndpoint — en SDK v4 RegionEndpoint
     /// gana silenciosamente y el tráfico sale a AWS real.
     /// </summary>
-    public static AmazonDynamoDBClient CreateDynamoDb(EmulatorAwsOptions options)
+    public static AmazonDynamoDBClient CreateDynamoDb(EmulatorAwsOptions options, ILoggerFactory? loggerFactory = null)
     {
-        var pin = new PinnedCaHttpClientFactory(X509CertificateLoader.LoadCertificateFromFile(options.CaPath));
+        var pin = new PinnedCaHttpClientFactory(X509CertificateLoader.LoadCertificateFromFile(options.CaPath),
+            "dynamodb", loggerFactory);
         return new AmazonDynamoDBClient(
             new BasicAWSCredentials(options.AccessKeyId, options.SecretAccessKey),
             new AmazonDynamoDBConfig
@@ -52,9 +59,10 @@ public static class EmulatorAwsClients
     }
 
     /// <summary>Cliente SQS del emulador (transporte de la saga, D-0006). Misma regla que DynamoDB.</summary>
-    public static AmazonSQSClient CreateSqs(EmulatorAwsOptions options)
+    public static AmazonSQSClient CreateSqs(EmulatorAwsOptions options, ILoggerFactory? loggerFactory = null)
     {
-        var pin = new PinnedCaHttpClientFactory(X509CertificateLoader.LoadCertificateFromFile(options.CaPath));
+        var pin = new PinnedCaHttpClientFactory(X509CertificateLoader.LoadCertificateFromFile(options.CaPath),
+            "sqs", loggerFactory);
         return new AmazonSQSClient(
             new BasicAWSCredentials(options.AccessKeyId, options.SecretAccessKey),
             new AmazonSQSConfig
@@ -68,9 +76,10 @@ public static class EmulatorAwsClients
     }
 
     /// <summary>Cliente S3 del emulador (payload QR de las entradas, D-0005). Misma regla que DynamoDB.</summary>
-    public static AmazonS3Client CreateS3(EmulatorAwsOptions options)
+    public static AmazonS3Client CreateS3(EmulatorAwsOptions options, ILoggerFactory? loggerFactory = null)
     {
-        var pin = new PinnedCaHttpClientFactory(X509CertificateLoader.LoadCertificateFromFile(options.CaPath));
+        var pin = new PinnedCaHttpClientFactory(X509CertificateLoader.LoadCertificateFromFile(options.CaPath),
+            "s3", loggerFactory);
         return new AmazonS3Client(
             new BasicAWSCredentials(options.AccessKeyId, options.SecretAccessKey),
             new AmazonS3Config

@@ -72,68 +72,133 @@ public sealed class DynamoDbEventRepository(IAmazonDynamoDB ddb) : IEventReposit
     }
 
     // --- Saga (S02, D-0004/D-0005): reserva y liberación de asientos -------------
+    // D-0013 (F-05): el decremento y su marca de idempotencia viven en el MISMO UpdateItem
+    // del ítem del evento (ADD availability + ADD decrement_pids bajo NOT contains) — la
+    // ventana claim→decremento que podía crashear a mitad NO existe por construcción.
 
     private const string ReservationPrefix = "RESERVATION#";
+    private const string DecrementPids = "decrement_pids";
 
     /// <summary>
-    /// Reserva idempotente de asientos (comando reserve-seats): 1) claim condicional
-    /// RESERVATION#purchase_id (attribute_not_exists ⇒ un solo efecto por compra, hook de H-03);
-    /// 2) decremento atómico anti-oversell (available >= seats, primitiva verificada por el TL).
+    /// Reserva idempotente de asientos (comando reserve-seats, D-0013): UN solo UpdateItem
+    /// atómico "ADD availability -n, ADD decrement_pids {pid}" con condición
+    /// "availability >= n AND NOT contains(decrement_pids, pid)". La condición falla ⇒ esta
+    /// compra ya decrementó (redelivery tras crash: ack SIN segundo decremento) o no hay
+    /// disponibilidad (guard anti-oversell de D-0005). El claim RESERVATION#pid queda como
+    /// estado de negocio para la compensación.
     /// </summary>
     public async Task<ReserveResult> ReserveAsync(string eventId, string purchaseId, int seats, CancellationToken ct)
     {
-        try
-        {
-            await ddb.PutItemAsync(new PutItemRequest
-            {
-                TableName = TableName,
-                Item = new Dictionary<string, AttributeValue>
-                {
-                    ["pk"] = new() { S = ReservationPrefix + purchaseId },
-                    ["event_id"] = new() { S = eventId },
-                    ["seats"] = new() { N = seats.ToString(CultureInfo.InvariantCulture) },
-                    ["state"] = new() { S = "RESERVED" },
-                },
-                ConditionExpression = "attribute_not_exists(pk)",
-            }, ct);
-        }
-        catch (ConditionalCheckFailedException)
-        {
-            // Duplicado: el intento previo ya dejó su efecto único. Re-leer para el ack correcto.
-            return await GetReservationStateAsync(purchaseId, ct) == "RESERVED"
-                ? new ReserveResult(ReservationOutcome.DuplicateReserved, await PriceOfAsync(eventId, ct))
-                : new ReserveResult(ReservationOutcome.Unavailable, 0m); // intento previo fallido
-        }
-
+        bool decremented;
         try
         {
             await ddb.UpdateItemAsync(new UpdateItemRequest
             {
                 TableName = TableName,
                 Key = Key(eventId),
-                UpdateExpression = "SET available = available - :n",
-                ConditionExpression = "available >= :n",
+                UpdateExpression = "ADD available :neg, #dp :pidset",
+                // attribute_not_exists: en un evento fresco el set no existe aún — el emulador
+                // resuelve contains() sobre atributo ausente como fallo (hallazgo S06).
+                // contains() compara contra el :pid ESCALAR; el ADD del set usa :pidset (SS).
+                ConditionExpression =
+                    "available >= :n AND (attribute_not_exists(#dp) OR NOT contains(#dp, :pid))",
+                ExpressionAttributeNames = new Dictionary<string, string> { ["#dp"] = DecrementPids },
                 ExpressionAttributeValues = new Dictionary<string, AttributeValue>
                 {
+                    [":neg"] = new() { N = (-seats).ToString(CultureInfo.InvariantCulture) },
+                    [":pidset"] = new() { SS = [purchaseId] },
+                    [":pid"] = new() { S = purchaseId },
                     [":n"] = new() { N = seats.ToString(CultureInfo.InvariantCulture) },
+                },
+            }, ct);
+            decremented = true;
+        }
+        catch (ConditionalCheckFailedException)
+        {
+            decremented = false;
+        }
+
+        if (decremented)
+        {
+            // Claim de negocio, incondicional: el decremento atómico YA garantizó el efecto
+            // único. Si un intento previo sin disponibilidad dejó state=FAILED y su mensaje
+            // nunca se ackó (crash), esta entrega legítima reabre la reserva.
+            await ddb.PutItemAsync(new PutItemRequest
+            {
+                TableName = TableName,
+                Item = ReservationItem(eventId, purchaseId, seats, "RESERVED"),
+            }, ct);
+            return new ReserveResult(ReservationOutcome.Reserved, await PriceOfAsync(eventId, ct));
+        }
+
+        if (await AlreadyDecrementedAsync(eventId, purchaseId, ct))
+        {
+            // Redelivery tras crash entre decremento y claim (o comando duplicado): ack SIN
+            // segundo decremento; se asegura el claim RESERVED para que la compensación libere.
+            try
+            {
+                await ddb.PutItemAsync(new PutItemRequest
+                {
+                    TableName = TableName,
+                    Item = ReservationItem(eventId, purchaseId, seats, "RESERVED"),
+                    ConditionExpression = "attribute_not_exists(pk)",
+                }, ct);
+            }
+            catch (ConditionalCheckFailedException)
+            {
+                // El claim ya existía (RESERVED/RELEASED): se conserva.
+            }
+            return new ReserveResult(ReservationOutcome.DuplicateReserved, await PriceOfAsync(eventId, ct));
+        }
+
+        // Sin disponibilidad (o evento inexistente): registra el intento fallido, sin mutar.
+        try
+        {
+            await ddb.PutItemAsync(new PutItemRequest
+            {
+                TableName = TableName,
+                Item = ReservationItem(eventId, purchaseId, seats, "FAILED"),
+                ConditionExpression = "attribute_not_exists(pk)",
+            }, ct);
+        }
+        catch (ConditionalCheckFailedException)
+        {
+            // Ya había claim: se conserva el estado previo.
+        }
+        return new ReserveResult(ReservationOutcome.Unavailable, 0m);
+    }
+
+    /// <summary>
+    /// Liberación idempotente (compensación, H-02 AC3, D-0013): simétrica a la reserva — UN
+    /// solo UpdateItem "ADD availability +n DELETE decrement_pids {pid}" bajo contains(pid):
+    /// incrementa y habilita re-reservar exactamente una vez. Duplicado (o nunca decrementado)
+    /// ⇒ condición falla ⇒ sin efecto. El claim RESERVED→RELEASED va después: un crash entre
+    /// ambos no reintroduce drift (el contains ya sacó el pid).
+    /// </summary>
+    public async Task<ReleaseOutcome> ReleaseAsync(string eventId, string purchaseId, int seats, CancellationToken ct)
+    {
+        try
+        {
+            await ddb.UpdateItemAsync(new UpdateItemRequest
+            {
+                TableName = TableName,
+                Key = Key(eventId),
+                UpdateExpression = "ADD available :pos DELETE #dp :pidset",
+                ConditionExpression = "contains(#dp, :pid)",
+                ExpressionAttributeNames = new Dictionary<string, string> { ["#dp"] = DecrementPids },
+                ExpressionAttributeValues = new Dictionary<string, AttributeValue>
+                {
+                    [":pos"] = new() { N = seats.ToString(CultureInfo.InvariantCulture) },
+                    [":pidset"] = new() { SS = [purchaseId] },
+                    [":pid"] = new() { S = purchaseId },
                 },
             }, ct);
         }
         catch (ConditionalCheckFailedException)
         {
-            await MarkReservationAsync(purchaseId, "FAILED", ct); // registra el intento fallido
-            return new ReserveResult(ReservationOutcome.Unavailable, 0m);
+            // Ya liberado (pid fuera del set) o nunca decrementado: sin efecto.
         }
 
-        return new ReserveResult(ReservationOutcome.Reserved, await PriceOfAsync(eventId, ct));
-    }
-
-    /// <summary>
-    /// Liberación idempotente (compensación, H-02 AC3): reclama RESERVED→RELEASED exactamente
-    /// una vez y revierte el decremento. Duplicado ⇒ no incrementa (anti sobre-incremento).
-    /// </summary>
-    public async Task<ReleaseOutcome> ReleaseAsync(string eventId, string purchaseId, int seats, CancellationToken ct)
-    {
         try
         {
             await ddb.UpdateItemAsync(new UpdateItemRequest
@@ -152,54 +217,37 @@ public sealed class DynamoDbEventRepository(IAmazonDynamoDB ddb) : IEventReposit
                     [":reserved"] = new() { S = "RESERVED" },
                 },
             }, ct);
+            return ReleaseOutcome.Released;
         }
         catch (ConditionalCheckFailedException)
         {
             return ReleaseOutcome.Duplicate;
         }
-
-        await ddb.UpdateItemAsync(new UpdateItemRequest
-        {
-            TableName = TableName,
-            Key = Key(eventId),
-            UpdateExpression = "SET available = available + :n",
-            ExpressionAttributeValues = new Dictionary<string, AttributeValue>
-            {
-                [":n"] = new() { N = seats.ToString(CultureInfo.InvariantCulture) },
-            },
-        }, ct);
-        return ReleaseOutcome.Released;
     }
 
-    private async Task<string?> GetReservationStateAsync(string purchaseId, CancellationToken ct)
+    /// <summary>Lectura consistente del set de decrementos: ¿esta compra ya decrementó? (distinguir duplicado de sin-disponibilidad).</summary>
+    private async Task<bool> AlreadyDecrementedAsync(string eventId, string purchaseId, CancellationToken ct)
     {
         var response = await ddb.GetItemAsync(new GetItemRequest
         {
             TableName = TableName,
-            Key = new Dictionary<string, AttributeValue>
-            {
-                ["pk"] = new() { S = ReservationPrefix + purchaseId },
-            },
+            Key = Key(eventId),
             ConsistentRead = true,
+            ProjectionExpression = "#dp",
+            ExpressionAttributeNames = new Dictionary<string, string> { ["#dp"] = DecrementPids },
         }, ct);
-        return response.Item is not { Count: > 0 } ? null : response.Item["state"].S;
+        // L-004: el emulador devuelve Item=null (no dict vacío) cuando la key no existe.
+        return response.Item?.GetValueOrDefault(DecrementPids)?.SS.Contains(purchaseId) == true;
     }
 
-    private async Task MarkReservationAsync(string purchaseId, string state, CancellationToken ct) =>
-        await ddb.UpdateItemAsync(new UpdateItemRequest
-        {
-            TableName = TableName,
-            Key = new Dictionary<string, AttributeValue>
-            {
-                ["pk"] = new() { S = ReservationPrefix + purchaseId },
-            },
-            UpdateExpression = "SET #s = :state",
-            ExpressionAttributeNames = new Dictionary<string, string> { ["#s"] = "state" },
-            ExpressionAttributeValues = new Dictionary<string, AttributeValue>
-            {
-                [":state"] = new() { S = state },
-            },
-        }, ct);
+    private static Dictionary<string, AttributeValue> ReservationItem(
+        string eventId, string purchaseId, int seats, string state) => new()
+    {
+        ["pk"] = new AttributeValue { S = ReservationPrefix + purchaseId },
+        ["event_id"] = new AttributeValue { S = eventId },
+        ["seats"] = new AttributeValue { N = seats.ToString(CultureInfo.InvariantCulture) },
+        ["state"] = new AttributeValue { S = state },
+    };
 
     private async Task<decimal> PriceOfAsync(string eventId, CancellationToken ct) =>
         (await GetByIdAsync(eventId, ct))?.Price ?? 0m;

@@ -14,9 +14,13 @@ builder.Logging.AddServiceTraceLogging(); // JSON + Timestamp ISO UTC (contrato 
 
 var awsOptions = EmulatorAwsOptions.FromEnvironment();
 builder.Services.AddSingleton(awsOptions);
-builder.Services.AddSingleton<IAmazonDynamoDB>(_ => EmulatorAwsClients.CreateDynamoDb(awsOptions));
-builder.Services.AddSingleton<IAmazonSQS>(_ => EmulatorAwsClients.CreateSqs(awsOptions));
+// ILoggerFactory → circuit breakers por downstream loguean apertura/cierre (D-0012).
+builder.Services.AddSingleton<IAmazonDynamoDB>(
+    sp => EmulatorAwsClients.CreateDynamoDb(awsOptions, sp.GetRequiredService<ILoggerFactory>()));
+builder.Services.AddSingleton<IAmazonSQS>(
+    sp => EmulatorAwsClients.CreateSqs(awsOptions, sp.GetRequiredService<ILoggerFactory>()));
 builder.Services.AddSingleton<SqsSagaTransport>();
+builder.Services.AddSingleton<TicketFlow.Shared.Infrastructure.FailureInjector>(); // D-0012: /admin/failure
 builder.Services.AddSingleton<DynamoDbPaymentRepository>();
 builder.Services.AddSingleton<IPaymentRepository>(sp => sp.GetRequiredService<DynamoDbPaymentRepository>());
 builder.Services.AddSingleton<PaymentsSagaHandler>();
@@ -40,6 +44,9 @@ app.UseExceptionHandler(errorApp => errorApp.Run(ctx =>
     Results.Problem(statusCode: 500, title: "Internal error", type: "internal-error").ExecuteAsync(ctx)));
 
 app.MapGet("/health", () => Results.Ok(new { status = "ok" }));
+
+// Resiliencia observable (D-0012): inyección de fallos en vivo + DLQ del worker de este servicio.
+app.MapResilienceAdmin(SagaQueues.PaymentsCommands);
 
 // Evidencia del paso de pago (plan §2): {purchase_id, status: APPROVED|DECLINED, reason?}.
 app.MapGet("/payments/{purchaseId}", async (string purchaseId, IPaymentRepository payments, CancellationToken ct) =>
@@ -67,8 +74,9 @@ public sealed class PaymentsWorker(
     IAmazonSQS sqs,
     SqsSagaTransport transport,
     PaymentsSagaHandler handler,
+    TicketFlow.Shared.Infrastructure.FailureInjector failureInjector,
     ILogger<PaymentsWorker> logger)
-    : SqsSagaWorker(sqs, transport, SagaQueues.PaymentsCommands, logger)
+    : SqsSagaWorker(sqs, transport, SagaQueues.PaymentsCommands, logger, failureInjector)
 {
     protected override async Task HandleAsync(SagaEnvelope envelope, CancellationToken ct)
     {

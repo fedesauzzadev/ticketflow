@@ -7,6 +7,7 @@ using TicketFlow.Catalog.Core.Domain;
 using TicketFlow.Catalog.Core.Infrastructure;
 using TicketFlow.Shared.Infrastructure;
 using TicketFlow.Shared.Infrastructure.Logging;
+using TicketFlow.Shared.Infrastructure.Saga;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -16,9 +17,13 @@ builder.Logging.AddServiceTraceLogging();
 // Config 100% por env, validada fail-fast al arranque (NFR-1 / D-0003).
 var awsOptions = EmulatorAwsOptions.FromEnvironment();
 builder.Services.AddSingleton(awsOptions);
-builder.Services.AddSingleton<IAmazonDynamoDB>(_ => EmulatorAwsClients.CreateDynamoDb(awsOptions));
-builder.Services.AddSingleton<IAmazonSQS>(_ => EmulatorAwsClients.CreateSqs(awsOptions)); // saga S02 (D-0006)
+// ILoggerFactory → los circuit breakers por downstream loguean apertura/cierre (D-0012).
+builder.Services.AddSingleton<IAmazonDynamoDB>(
+    sp => EmulatorAwsClients.CreateDynamoDb(awsOptions, sp.GetRequiredService<ILoggerFactory>()));
+builder.Services.AddSingleton<IAmazonSQS>(
+    sp => EmulatorAwsClients.CreateSqs(awsOptions, sp.GetRequiredService<ILoggerFactory>()));
 builder.Services.AddSingleton<TicketFlow.Shared.Infrastructure.Saga.SqsSagaTransport>();
+builder.Services.AddSingleton<TicketFlow.Shared.Infrastructure.FailureInjector>(); // D-0012: /admin/failure
 
 builder.Services.AddHybridCache(); // cache in-app (D-0007)
 builder.Services.AddSingleton<AvailabilityCacheOptions>();
@@ -87,6 +92,9 @@ app.MapPost("/internal/events/{id}/invalidate-cache",
         await availability.InvalidateAsync(id, ct);
         return Results.NoContent();
     });
+
+// Resiliencia observable (D-0012): inyección de fallos en vivo + DLQ del worker de este servicio.
+app.MapResilienceAdmin(SagaQueues.CatalogCommands);
 
 app.Run();
 

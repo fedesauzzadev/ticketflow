@@ -86,4 +86,26 @@ public sealed class PurchaseRepositoryTests
         // El PM lee pending_failure_reason y lo pasa como reason en la transición a FAILED.
         Assert.Equal("motivo original", failed!.PendingFailureReason);
     }
+
+    /// <summary>D-0012: step-failed con pago ya autorizado también reclama la compensación.</summary>
+    [SkippableFact]
+    public async Task Failure_note_also_wins_from_PAYMENT_APPROVED()
+    {
+        EmulatorTestSupport.SkipIfNotConfigured();
+        var repo = NewRepo();
+        var purchase = NewPurchase();
+        await repo.InitializeAsync(CancellationToken.None);
+        await repo.CreateAsync(purchase, CancellationToken.None);
+        var ct = CancellationToken.None;
+        await repo.TryTransitionAsync(purchase.PurchaseId,
+            PurchaseStatus.PENDING, PurchaseStatus.SEATS_RESERVED, ct: ct);
+        await repo.TryTransitionAsync(purchase.PurchaseId,
+            PurchaseStatus.SEATS_RESERVED, PurchaseStatus.PAYMENT_APPROVED, ct: ct);
+
+        Assert.True(await repo.TryNoteFailureAsync(purchase.PurchaseId, "issue-tickets falló", ct));
+        Assert.False(await repo.TryNoteFailureAsync(purchase.PurchaseId, "duplicado", ct));
+
+        Assert.True(await repo.TryTransitionAsync(purchase.PurchaseId,
+            PurchaseStatus.PAYMENT_APPROVED, PurchaseStatus.FAILED, reason: "issue-tickets falló", ct: ct));
+    }
 }

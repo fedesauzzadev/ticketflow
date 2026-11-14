@@ -101,13 +101,17 @@ public sealed class DynamoDbPurchaseRepository(IAmazonDynamoDB ddb) : IPurchaseR
                 TableName = TableName,
                 Key = Key(purchaseId),
                 UpdateExpression = "SET pending_failure_reason = :reason",
+                // Con asiento reservado (SEATS_RESERVED por payment-declined/step-failed, o
+                // PAYMENT_APPROVED por step-failed con pago ya autorizado — D-0012): hay que compensar.
                 ConditionExpression =
-                    "attribute_exists(pk) AND #st = :seats_reserved AND attribute_not_exists(pending_failure_reason)",
+                    "attribute_exists(pk) AND (#st = :seats_reserved OR #st = :payment_approved) " +
+                    "AND attribute_not_exists(pending_failure_reason)",
                 ExpressionAttributeNames = new Dictionary<string, string> { ["#st"] = "status" },
                 ExpressionAttributeValues = new Dictionary<string, AttributeValue>
                 {
                     [":reason"] = new() { S = reason },
                     [":seats_reserved"] = new() { S = PurchaseStatus.SEATS_RESERVED.ToString() },
+                    [":payment_approved"] = new() { S = PurchaseStatus.PAYMENT_APPROVED.ToString() },
                 },
             }, ct);
             return true;

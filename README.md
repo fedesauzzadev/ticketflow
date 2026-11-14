@@ -113,6 +113,7 @@ $p2                                                       # FAILED + reason "pag
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts\demo-cache.ps1          # MISS -> HIT -> compra -> MISS con valores
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts\demo-idempotency.ps1    # misma key => misma compra; 422s
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\demo-resilience.ps1     # AC1..AC5: backoff, DLQ, breaker, sin drift
 ```
 
 Ambos exit 0 si la demo pasa (distinto de 0 si falla cualquier check). `demo-idempotency` demuestra también el caso **agotado** cuando existe un evento con ≤ 7 asientos: para verlo, levanta el entorno con un evento chico antes de correr el script:
@@ -123,6 +124,30 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts\run-local.ps1
 ```
 
 (formato `id|nombre|fecha|precio|disponibilidad`; el seed es condicional — no pisa eventos existentes)
+
+## Resiliencia: inyectá fallos vos (H-06)
+
+`demo-resilience.ps1` corre la secuencia completa (fallo transitorio con backoff visible,
+fallo persistente con DLQ + compra terminal, consistencia post-recuperación, `docker pause`
+del emulador con circuit breaker fail-fast y cierre, invariante de disponibilidad). Para
+inyectar a mano, cada servicio (:5080 Catálogo · :5081 Órdenes · :5082 Pagos · :5083
+Ticketing) expone:
+
+```powershell
+# activar fallo por paso de saga (transient: falla N intentos; persistent: hasta borrar; step "*" = todos)
+curl -X POST http://localhost:5082/admin/failure -H "Content-Type: application/json" -d '{\"step\":\"authorize-payment\",\"mode\":\"transient\",\"count\":2}'
+curl http://localhost:5082/admin/failure                    # reglas activas
+curl -X DELETE http://localhost:5082/admin/failure/authorize-payment   # recuperar
+
+# cola de mensajes muertos del worker del servicio (peek sin borrar)
+curl http://localhost:5082/admin/dlq                        # [{\"type\":\"authorize-payment\",\"purchase_id\":\"pur-...\",...}]
+```
+
+Pasos inyectables: `reserve-seats` / `release-seats` (Catálogo) · `authorize-payment`
+(Pagos) · `issue-tickets` (Ticketing) · cualquier evento (Órdenes). Reintentos: 3 intentos
+por entrega con backoff 0,5/1 s; agotados → `<cola>-dlq.fifo` + compra `FAILED` con motivo
+(compensada si había reserva). El "downstream colgado" del breaker es `docker pause
+aws-emulator` (3 fallos consecutivos → fail-fast 5 s → probe de recuperación).
 
 ## Traza distribuida de una compra (correlation-id)
 
