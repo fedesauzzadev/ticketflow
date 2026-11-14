@@ -6,15 +6,15 @@
 TicketFlow: portfolio backend de venta de entradas para eventos de alta demanda — microservicios .NET 10 orquestados (saga), idempotencia observable, cache hit/miss observable, todo sobre servicios AWS del emulador oficial local (:9297, HTTPS+SigV4, CA propia). Dominio = PROPUESTA aprobada en G2. Plan técnico Fase 2: factory/plan.md.
 
 ## Active slice
-**mvp** (V0, H-01..H-04 de factory/backlog.md): N-1001 → N-1002 → N-1003 → N-1004. Estado: **N-1001 verified** (S01: Catálogo+cache+DynamoDB) · **N-1002 verified** (S02: saga completa con compensación, 4 servicios, cierra H-01 AC2) · **N-1003 verified** (S03: idempotencia observable — replay/dedup/agotado, 96/96 tests ×2 corridas, H-03 cerrada) · **N-1004 verified** (S04: README+quickstart+scripts demo+p95 NFR-5 OK — MVP H-01..H-04 COMPLETO) - Gate QA F4 ejecutado: SHIP (factory/qa-report.md: 0 criticos; Mayores F-01 timeout bajo peer colgado, F-02 LICENSE/CHANGELOG/git faltantes). Sprints S01..S04 en factory/plan.md.
+**mvp** (V0, H-01..H-04 de factory/backlog.md): **COMPLETO Y APROBADO G2 (2026-11-14)** — N-1001..N-1004 shipped (commit 97d7a7d, tag v0.1.0). QA F4 final: SHIP (2 rondas, F-01/F-02/F-03 resueltos, evidencia qa-r2-retest). Siguiente slice: **v1** (H-05..H-07: trazas distribuidas, resiliencia reintentos/DLQ/circuit breaker, estrés concurrente) — aprobado por Negocio en G2, PO especifica ACs primero.
 
 ## Nodes
 | ID | Title | Type | Size | Status | Key links |
 |----|-------|------|------|--------|-----------|
-| N-1001 | Catálogo y disponibilidad de eventos con cache observable | feature | M | verified | → D-0002, D-0005, D-0007 · evidencia 2026-11-13-S01 |
-| N-1002 | Saga de compra de entradas multi-servicio con compensación | feature | L | verified | depends_on N-1001 · → D-0004, D-0006 · evidencia 2026-11-13-S02 |
-| N-1003 | Idempotencia observable de la compra (replay y duplicados) | feature | M | verified | depends_on N-1002 · → D-0009 (claim condicional + hash canónico + 422s + log de dedup) · evidencia 2026-11-14-S03 |
-| N-1004 | Documentación de portfolio y scripts de demo | feature | M | verified | depends_on N-1001..N-1003 · → D-0002, D-0008 · evidencia 2026-11-14-S04 |
+| N-1001 | Catálogo y disponibilidad de eventos con cache observable | feature | M | shipped | → D-0002, D-0005, D-0007 · evidencia 2026-11-13-S01 |
+| N-1002 | Saga de compra de entradas multi-servicio con compensación | feature | L | shipped | depends_on N-1001 · → D-0004, D-0006 · evidencia 2026-11-13-S02 |
+| N-1003 | Idempotencia observable de la compra (replay y duplicados) | feature | M | shipped | depends_on N-1002 · → D-0009 (claim condicional + hash canónico + 422s + log de dedup) · evidencia 2026-11-14-S03 |
+| N-1004 | Documentación de portfolio y scripts de demo | feature | M | shipped | depends_on N-1001..N-1003 · → D-0002, D-0008 · evidencia 2026-11-14-S04 |
 
 ## Decisions
 | ID | Título | Reversibility |
@@ -28,6 +28,7 @@ TicketFlow: portfolio backend de venta de entradas para eventos de alta demanda 
 | D-0007 | cache in-app HybridCache + invalidación (X-Cache observable) | easy |
 | D-0008 | estructura solución (Api+Core por servicio + Shared.Infrastructure) y mapa de patrones | medium |
 | D-0009 | idempotencia observable S03: claim condicional de key, replay 200, mismatch/agotado 422, dedup por correlación | medium |
+| D-0010 | G2 aprobado: MVP entregado + git local (identidad placeholder) + V1 aprobada | easy |
 
 ## Evidence
 - fix-2026-11-14-qa-f01-f02-f03.md — RONDA FIX 1/2 POST-QA (F-01/F-02/F-03, dev): F-01 timeout efectivo (HttpClient.Timeout=ClientConfig.Timeout + MaxErrorRetry=0; unit 2/2 + e2e docker pause: GET/POST 500 a los 10,05 s —antes 150-240 s+—, workers loguean errores durante pausa, unpause ⇒ GET 200 + saga TICKETS_ISSUED completa); F-02 LICENSE MIT + CHANGELOG 0.1.0 + Version 0.1.0 en props (.gitignore verificado); F-03 umbral cobertura ≥70% Core cableado (coverlet.msbuild+CollectCoverage, condicional al env del emulador): suite 98/98 (96+2 nuevos) con 81,2/85,5/92,8/87,3% por Core, gate probado fallando (exit 1) y pasando; build 0/0 ×3. Enmienda D-0003, learnings L-011/L-012.
@@ -40,8 +41,8 @@ TicketFlow: portfolio backend de venta de entradas para eventos de alta demanda 
 
 ## Open risks / blockers
 - F-01 (QA F4, Mayor): RESUELTO 2026-11-14 (ronda fix 1/2) — timeout 10 s efectivo (`HttpClient.Timeout = ClientConfig.Timeout` + `MaxErrorRetry=0` en PinnedCaHttpClientFactory/EmulatorAwsClients, enmienda D-0003, L-011): docker pause ⇒ 500 a los 10,05 s (antes 150-240 s+); recovery total. Evidencia fix-2026-11-14-qa-f01-f02-f03.md.
-- F-02 (QA F4, Mayor): RESUELTO 2026-11-14 salvo git init/commit — LICENSE (MIT), CHANGELOG 0.1.0 y `<Version>0.1.0</Version>` creados; git init queda para post-G2 por decisión del orquestador.
-- Dominio pendiente de aprobación del Negocio (gate G2).
+- F-02 (QA F4, Mayor): RESUELTO 2026-11-14 — LICENSE (MIT), CHANGELOG 0.1.0, `<Version>0.1.0</Version>` y git init + commit 97d7a7d + tag v0.1.0 (post-G2, D-0010).
+- Dominio APROBADO por Negocio en G2 (2026-11-14) — V1 (H-05..H-07) también aprobada.
 - **`pwsh` no instalado** (solo PS 5.1): `commands.run` de config.yaml requiere ajuste o instalación de PS7 (L-003). run-local.ps1 es compatible con ambos.
 - Estado del emulador es en memoria: NO reiniciar el contenedor durante la demo (declarado en plan §7).
 - SNS fan-out sin entrega en el emulador → notificación por evento interno + log; revisar en V1 (L-002).
