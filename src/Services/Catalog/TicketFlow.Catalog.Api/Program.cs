@@ -48,6 +48,9 @@ var app = builder.Build();
 // emulador — reiniciar este proceso NO recrea ni pisa los datos (H-01 AC4).
 var seed = SeedEvents.Parse(Environment.GetEnvironmentVariable("SEED_EVENTS"));
 await app.Services.GetRequiredService<DynamoDbEventRepository>().InitializeAsync(seed, CancellationToken.None);
+// F-06 (H-10 AC2): el listado por defecto oculta residuos de tests (prefijo it-, L-008) —
+// catálogo presentable tras correr la suite contra el emulador compartido. Vacío = sin filtro.
+var excludePrefix = Environment.GetEnvironmentVariable("CATALOG_EXCLUDE_ID_PREFIX") ?? "it-";
 app.Logger.LogInformation(
     "catálogo listo en :{Port} — seed aplicado ({Count} eventos, condicional), tabla {Table}",
     port, seed.Count, DynamoDbEventRepository.TableName);
@@ -59,7 +62,9 @@ app.UseExceptionHandler(errorApp => errorApp.Run(ctx =>
 app.MapGet("/events", async (IEventRepository repository, CancellationToken ct) =>
 {
     var events = await repository.ListAsync(ct);
-    return Results.Ok(events.Select(e => new EventResponse(e.Id, e.Name, e.Date, e.Price, e.Available)));
+    return Results.Ok(events
+        .Where(e => excludePrefix.Length == 0 || !e.Id.StartsWith(excludePrefix, StringComparison.Ordinal))
+        .Select(e => new EventResponse(e.Id, e.Name, e.Date, e.Price, e.Available)));
 });
 
 app.MapGet("/events/{id}/availability",

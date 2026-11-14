@@ -18,14 +18,15 @@ public sealed class OrdersApiTests
     private static readonly JsonSerializerOptions Json =
         new() { PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower };
 
-    private static HttpContent PurchaseBody(int seats = 1, string pan = "4111111111111111") =>
+    private static HttpContent PurchaseBody(string mediaType = "application/json", int seats = 1,
+        string pan = "4111111111111111") =>
         new StringContent(
             JsonSerializer.Serialize(new
             {
                 event_id = "evt-api-test",
                 seats,
                 card = new { pan, holder = "Michael Jackson", expiry = "12/29", cvv = "123" },
-            }, Json), Encoding.UTF8, "application/json");
+            }, Json), Encoding.UTF8, mediaType);
 
     [SkippableFact]
     public async Task Post_purchase_returns_201_with_id_and_pending_status()
@@ -100,6 +101,31 @@ public sealed class OrdersApiTests
         using var garbage = new StringContent("{ no es json ]", Encoding.UTF8, "application/json");
         using var response = await client.PostAsync("/purchases", garbage);
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+    }
+
+    [SkippableFact]
+    public async Task Post_non_json_content_type_returns_415_without_side_effects()
+    {
+        EmulatorTestSupport.SkipIfNotConfigured();
+        using var factory = NewFactory();
+        var client = factory.CreateClient();
+        var key = "api-test-" + Guid.NewGuid().ToString("N"); // único por corrida (L-008)
+        client.DefaultRequestHeaders.Add("Idempotency-Key", key);
+
+        // JSON válido con Content-Type equivocado (QA F-04 / H-10 AC1) — mismo body que PurchaseBody().
+        using var plainText = PurchaseBody("text/plain");
+        using var rejected = await client.PostAsync("/purchases", plainText);
+        var raw = await rejected.Content.ReadAsStringAsync();
+
+        Assert.Equal(HttpStatusCode.UnsupportedMediaType, rejected.StatusCode);
+        var problem = JsonDocument.Parse(raw).RootElement;
+        Assert.Equal("unsupported-media-type", problem.GetProperty("type").GetString());
+        Assert.Contains("application/json", problem.GetProperty("detail").GetString());
+
+        // Cero efectos: la key no se consumió — el mismo body con application/json es 201 (no replay 200).
+        using var valid = PurchaseBody();
+        using var created = await client.PostAsync("/purchases", valid);
+        Assert.Equal(HttpStatusCode.Created, created.StatusCode);
     }
 
     [SkippableFact]

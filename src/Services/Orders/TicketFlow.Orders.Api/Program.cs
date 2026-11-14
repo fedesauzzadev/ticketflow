@@ -80,6 +80,14 @@ app.MapPost("/purchases", async (HttpRequest http, IPurchaseRepository purchases
             type: "invalid-idempotency-key", detail: keyError);
     var key = keyHeader.ToString();
 
+    // F-04 (H-10 AC1): frontera de Content-Type — solo application/json (charset tolerado),
+    // ANTES de leer el body y de tocar stores: un 415 no claim la key ni crea compra.
+    var mediaType = http.ContentType?.Split(';', 2)[0].Trim();
+    if (!string.Equals(mediaType, "application/json", StringComparison.OrdinalIgnoreCase))
+        return Results.Problem(statusCode: 415, title: "Unsupported Media Type",
+            type: "unsupported-media-type",
+            detail: $"El Content-Type debe ser application/json (recibido: '{http.ContentType ?? "ninguno"}').");
+
     PurchaseRequest? request;
     try
     {

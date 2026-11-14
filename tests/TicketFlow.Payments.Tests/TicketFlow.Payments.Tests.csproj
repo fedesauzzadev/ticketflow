@@ -11,8 +11,8 @@
        del servicio (Api y Shared excluidos: los .Api sin tests in-proc son deuda V1, QA F-07). -->
   <PropertyGroup>
     <CollectCoverage>true</CollectCoverage>
-    <!-- Umbral activo solo con el emulador configurado (modo de verificación: la cobertura
-         de los Core viene de la integración; sin env se omiten esos tests y el umbral no aplica). -->
+    <!-- Umbral activo solo con el emulador configurado (modo de verificaciï¿½n: la cobertura
+         de los Core viene de la integraciï¿½n; sin env se omiten esos tests y el umbral no aplica). -->
     <Threshold Condition="$(AWS_EMULATOR_ACCESS_KEY_ID) != ''">70</Threshold>
     <Threshold Condition="$(AWS_EMULATOR_ACCESS_KEY_ID) == ''">0</Threshold>
     <ThresholdType>line</ThresholdType>
@@ -29,6 +29,7 @@
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
       <PrivateAssets>all</PrivateAssets>
     </PackageReference>
+    <PackageReference Include="Microsoft.AspNetCore.Mvc.Testing" Version="10.0.1" />
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />
     <PackageReference Include="xunit" Version="2.9.3" />
     <PackageReference Include="xunit.runner.visualstudio" Version="3.1.4" />

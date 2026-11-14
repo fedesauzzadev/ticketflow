@@ -2,6 +2,9 @@ using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
 using Microsoft.AspNetCore.Mvc.Testing;
+using TicketFlow.Catalog.Core.Domain;
+using TicketFlow.Catalog.Core.Infrastructure;
+using TicketFlow.Shared.Infrastructure;
 
 namespace TicketFlow.Catalog.Tests;
 
@@ -41,6 +44,30 @@ public sealed class CatalogApiTests
             Assert.True(evt.TryGetProperty("price", out _), "falta 'price'");
             Assert.True(evt.TryGetProperty("available", out _), "falta 'available'");
         }
+    }
+
+    [SkippableFact]
+    public async Task Events_hides_it_test_residue_but_keeps_seed_events()
+    {
+        EmulatorTestSupport.SkipIfNotConfigured();
+
+        // Residuo de la suite (L-008): evento it-* escrito directo por repo, como lo dejan
+        // los tests de integración en el emulador compartido (QA F-06 / H-10 AC2).
+        var repo = new DynamoDbEventRepository(
+            EmulatorAwsClients.CreateDynamoDb(EmulatorAwsOptions.FromEnvironment()));
+        var residueId = "it-" + Guid.NewGuid().ToString("N")[..12];
+        await repo.PutAsync(
+            CatalogEvent.Create(residueId, "Residuo de test", DateTimeOffset.UtcNow, 10m, 5),
+            CancellationToken.None);
+
+        using var factory = NewFactory();
+        var client = factory.CreateClient();
+        var events = await client.GetFromJsonAsync<JsonElement[]>("/events");
+
+        Assert.NotNull(events);
+        Assert.DoesNotContain(events,
+            e => e.GetProperty("id").GetString()!.StartsWith("it-", StringComparison.Ordinal));
+        Assert.Contains(events, e => !e.GetProperty("id").GetString()!.StartsWith("it-", StringComparison.Ordinal));
     }
 
     [SkippableFact]
