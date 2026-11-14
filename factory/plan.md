@@ -149,7 +149,7 @@ flowchart LR
 commands:
   build: ["dotnet", "build", "TicketFlow.sln"]
   test:  ["dotnet", "test", "TicketFlow.sln", "--nologo"]
-  run:   ["pwsh", "./scripts/run-local.ps1"]   # crea S01: emulador check + creds + 4 servicios
+  run:   ["powershell", "-File", "./scripts/run-local.ps1"]  # L-003: pwsh no instalado, PS 5.1 sí
 ```
 
 ## 7. Riesgos técnicos residuales
@@ -161,3 +161,86 @@ commands:
 | Fidelidad DynamoDB (ventana DELETING, timing ACTIVE) | Creación de tablas con poll (verificado en probe); sin recreate en caliente |
 | Saga asíncrona → flakiness en tests e2e | Polling con timeout explícito en scripts; `MessageGroupId=purchase_id` da orden determinística por compra |
 | SNS fan-out sin entrega (gap) | Fuera del MVP (D-0006); evento interno + log; revisar en V1 con release nuevo del emulador |
+
+---
+
+# V1 — "producción creíble" (Fase 2-bis, planificado 2026-11-14 · G1)
+
+**Input:** backlog V1 (H-05 N-2001 · H-06 N-2002 · H-07 N-2003 · H-10 N-2004), QA F4
+(F-04..F-07), L-001..L-012, D-0001..D-0010. NFRs del MVP (§3) siguen vigentes sin
+cambio: p95 (NFR-5), cobertura ≥70% Core (NFR-6), timeouts 10 s (NFR-3, efectivo desde
+F-01), cero secrets, ProblemDetails. Comandos de §6 **sin cambios** (config.yaml
+intacto).
+
+## V1.1 Decisiones clave (ADR cortos nuevos)
+
+| Tema | Decisión (1 línea) | ADR |
+|---|---|---|
+| Trazas | correlation_id **== purchase_id** (ya viaja en envelope/respuesta/MessageGroupId — cero propagación nueva); logs redirigidos a `.artifacts/logs/<svc>.log`; filtro = `scripts/trace-purchase.ps1 -PurchaseId <id>` con sort por Timestamp ISO y assert sin PAN/CVV | D-0011 |
+| Backoff | Hasta 3 intentos por entrega en `SqsSagaWorker` (esperas 0,5/1 s crecientes, log por intento con PurchaseId) | D-0012 |
+| DLQ | **Aplicativo**: `<cola>-dlq.fifo` + evento `step-failed` → `SagaProcessManager` marca FAILED (y compensa con release-seats si había reserva); inspección `GET /admin/dlq` por servicio; redrive nativo NO verificado en emulador y NO requerido por AC | D-0012 |
+| Circuit breaker | **Implementación propia** (~80 líneas, DelegatingHandler en `PinnedCaHttpClientFactory`, un breaker por downstream; 3 fallos → OPEN 5 s → probe → CLOSE); Polly descartado: wiring ×4 hosts + dep nueva en proyecto cero-deps | D-0012 |
+| Fallos inyectables | Endpoint admin por servicio (`POST/GET/DELETE /admin/failure`, in-memory, validado NFR-1): transient(count)/persistent; hang = `docker pause` documentado | D-0012 |
+| Crash-coherencia (F-05) | Decremento **atómico idempotente de un solo ítem** (`ADD availability -n` + `ADD decrement_pids pid` con `NOT contains`) — ventana eliminada por construcción, sin TransactWriteItems (soporte emulador no verificado) | D-0013 |
+| Estrés | `stress-test.ps1 -N [-X]` PS 5.1 + Add-Type/HttpClient compartido (L-010); X = disponibilidad al inicio; invariantes AC1..AC4 con exit code | D-0014 |
+
+## V1.2 H-10 (N-2004) — mapeo AC → cambio mínimo
+
+| AC | Cambio concreto mínimo |
+|---|---|
+| AC1 (F-04) | `POST /purchases`: validar `Request.ContentType` ≡ `application/json` (charset tolerado) ANTES de leer body/tocar stores → 415 ProblemDetails accionable, cero efectos. Test in-proc Orders (text/plain + JSON válido ⇒ 415, sin compra, delta disponibilidad 0). |
+| AC2 (F-06) | `GET /events` excluye ids con prefijo env `CATALOG_EXCLUDE_ID_PREFIX` (default `it-`, el prefijo que ya usan los tests — L-008). Test: evento `it-*` sembrado no aparece. |
+| AC3 (F-07) | Tests in-proc Payments (`GET /payments/{pid}` 200/404) y Ticketing (`GET /tickets/{id}` 200/404) copiando el patrón Catalog/Orders (seed por repo). Cobertura línea .Api > 0% reportada; umbral ≥70% Core intacto (L-012). |
+
+## V1.3 Sprints S05..S08 (cada uno cierra nodo(s) completo(s) con evidencia)
+
+> Mismo DoD que S01..S04: AC antes de código → build 0/0 + suite verde → verificación
+> funcional con evidencia en `brain/evidence/` → refutación por verifier.
+
+### S05 — Trazas distribuidas (H-05 / N-2001) — D-0011
+- `run-local.ps1`: redirect stdout/stderr por servicio a `.artifacts/logs/{svc}.log/.err.log` (L-006: paths citados; `.artifacts/` al .gitignore); tail en vivo documentado.
+- Sweep: cada paso de saga loguea ≥1 línea JSON con `PurchaseId` en los 4 servicios (huecos que haya, mínimo diff).
+- `scripts/trace-purchase.ps1`: filtro + sort por Timestamp ISO + tabla `timestamp|servicio|paso` + assert sin PAN/CVV; comando crudo alternativo documentado en README.
+- **AC heredadas:** H-05 AC1 (traza única 4 servicios cronológica), AC2 (estructurado, servicio, paso, sin sensibles), AC3 (compensación identificable con PAN 0002), AC4 (dos compras paralelas aisladas).
+
+### S06 — Resiliencia observable (H-06 / N-2002) — D-0012 + D-0013 (L)
+- Backoff en `SqsSagaWorker` (3 intentos, 0,5/1 s) + DLQ aplicativo + `step-failed` en `SagaProcessManager` (FAILED directo si PENDING; compensación reutilizada si SEATS_RESERVED/PAYMENT_APPROVED) + `GET /admin/dlq` (peek sin borrar).
+- Circuit breaker propio por downstream en `PinnedCaHttpClientFactory` (3 fallos → OPEN 5 s → probe → CLOSE, logs de apertura/cierre).
+- `FailureInjector` + `POST/GET/DELETE /admin/failure` por servicio (transient/persistent, validado NFR-1); `docker pause` documentado para AC4.
+- F-05/AC5: `DynamoDbEventRepository` Reserve/Release a decremento/incremento atómico idempotente single-item (D-0013).
+- Tests: unit (breaker sin reloj, injector, transición step-failed), integración (DLQ e2e con cola dedicada it-, doble ReserveAsync mismo pid → 1 decremento), e2e con evidencia AC1..AC5.
+- **AC heredadas:** H-06 AC1 (backoff visible), AC2 (DLQ inspeccionable + terminal con motivo), AC3 (sin limbo post-recovery), AC4 (breaker abre/cierra + saga nueva), AC5 (sin drift, invariante disponibilidad).
+
+### S07 — Estrés sin oversell (H-07 / N-2003) — D-0014
+- `scripts/stress-test.ps1` + helper Add-Type (N POST concurrentes, keys únicas, muestreo de disponibilidad, polling terminal, resumen/invariantes, exit code).
+- README: uso, deadline documentado, semántica de X (alineación por pre-compra).
+- **AC heredadas:** H-07 AC1 (X emitidas + N−X rechazos explícitos), AC2 (disponibilidad nunca negativa, final = X−emitidas), AC3 (100% terminal en plazo), AC4 (invariante final + emitidos == X).
+
+### S08 — Pulido deuda QA + gate (H-10 / N-2004)
+- Los tres cambios mínimos de §V1.2 + sus tests.
+- QA adversarial F5 (suite + demos + stress + trazas + resiliencia re-verificados con evidencia propia) → tag v0.2.0 tras G2 (versionado/bump pende del gate, no del dev).
+- **AC heredadas:** H-10 AC1 (415 sin efectos), AC2 (catálogo limpio post-suite), AC3 (.Api ejercidos, cobertura >0%, Core ≥70% verde).
+
+**Dependencias:** S05 → S06 (los AC de H-06 filtran logs por correlation-id: necesita
+trazas + archivos de S05) → S07 (el estrés corre sobre la semántica final de
+retry/DLQ/compensación) → S08 (la limpieza del catálogo se verifica al final, con TODA
+la suite encima).
+
+## V1.4 Estrategia QA delta
+
+| Nivel | Qué agrega V1 |
+|---|---|
+| Unit | Breaker (state machine determinista, sin reloj real), FailureInjector, transición `step-failed`, decremento idempotente (doble llamada → 1 decremento, con condicionales del emulador) |
+| Integración | DLQ e2e en cola dedicada it- (L-008), inyección transient/persistent vía endpoint real, Content-Type 415, filtro it-*, Payments/Ticketing in-proc |
+| Funcional/e2e | `trace-purchase.ps1` (AC1..AC4 de H-05), demo resiliencia documentada (inyectar→comprar→ver backoff/DLQ/breaker→recuperar→comprar), `stress-test.ps1` PASS con invariantes impresas |
+| NFRs vigentes | p95 re-medido en S08 sobre el flujo final (con breaker instalado, happy path sin cambios esperados); NFR-3 ahora con fail-fast del breaker <10 s cuando OPEN |
+
+## V1.5 Riesgos V1
+
+| Riesgo | Mitigación |
+|---|---|
+| Redrive del emulador no verificado | DLQ aplicativo (D-0012) — no depende del emulador; hallazgo documentado |
+| Breaker interfiere p95 happy path | Fail-fast solo tras 3 fallos consecutivos; happy path no toca estados de fallo; p95 re-medido en S08 |
+| S06 es L (el más grueso) | Anti-bloqueo 3 intentos → escalado a TL; descope interno (p.ej. pulir UX del admin) sin tocar AC |
+| Stress contra evento compartido del emulador | Script acepta -EventId; alineación por pre-compra documentada; corrida limpia en S08 para evidencia |
+| Logs a archivos cambian UX de la demo | Tail en vivo documentado (`Get-Content -Wait`); demos existentes no dependen de la consola de servicios |

@@ -9,10 +9,10 @@
 - **Dependencias:** verificación de servicios del emulador (Tech Lead, Fase 2) — el diseño tiene fallbacks definidos en spec.md; aprobación del dominio en G2.
 - **Riesgos:** soporte del emulador distinto al esperado (mitigado: MVP sin servicios exóticos + fallbacks); complejidad de la saga (mitigado: 3 pasos + 1 compensación, scripts imprimen evidencia).
 
-## V1 — "producción creíble": observabilidad + resiliencia (H-05..H-07)
+## V1 — "producción creíble": observabilidad + resiliencia (H-05..H-07 + H-10)
 
-- **Valor de portfolio concreto:** pasa de "funciona en demo" a "sé qué pasa cuando falla": trazas distribuidas del saga, fallos inyectados con reintentos/DLQ/circuit breaker visibles, y estrés concurrente sin sobrevender.
-- **Contenido:** trazas (una compra → sus pasos entre servicios) · reintentos con backoff + DLQ + circuit breaker · script de estrés concurrente.
+- **Valor de portfolio concreto:** pasa de "funciona en demo" a "sé qué pasa cuando falla": trazas distribuidas del saga, fallos inyectados con reintentos/DLQ/circuit breaker visibles, y estrés concurrente sin sobrevender — con la deuda Menor del QA (F-04..F-07) cerrada.
+- **Contenido:** trazas (una compra → sus pasos entre servicios) · reintentos con backoff + DLQ + circuit breaker (+ atomicidad de reserva F-05 como AC) · script de estrés concurrente · pulido de deuda QA F-04/F-06/F-07 (H-10).
 - **Dependencias:** V0 completo; servicios de mensajería del emulador verificados (si la DLQ no es soportada, se simula con cola secundaria documentada).
 - **Riesgos:** el emulador puede no exponer métricas nativas → la trazabilidad se construye a nivel aplicación (log estructurado con correlation-id), decisión del TL.
 
