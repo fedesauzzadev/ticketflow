@@ -114,6 +114,7 @@ $p2                                                       # FAILED + reason "pag
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts\demo-cache.ps1          # MISS -> HIT -> compra -> MISS con valores
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts\demo-idempotency.ps1    # misma key => misma compra; 422s
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts\demo-resilience.ps1     # AC1..AC5: backoff, DLQ, breaker, sin drift
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\stress-test.ps1 -N 20  # N compradores simultaneos, invariantes anti-oversell
 ```
 
 Ambos exit 0 si la demo pasa (distinto de 0 si falla cualquier check). `demo-idempotency` demuestra también el caso **agotado** cuando existe un evento con ≤ 7 asientos: para verlo, levanta el entorno con un evento chico antes de correr el script:
@@ -148,6 +149,20 @@ Pasos inyectables: `reserve-seats` / `release-seats` (Catálogo) · `authorize-p
 por entrega con backoff 0,5/1 s; agotados → `<cola>-dlq.fifo` + compra `FAILED` con motivo
 (compensada si había reserva). El "downstream colgado" del breaker es `docker pause
 aws-emulator` (3 fallos consecutivos → fail-fast 5 s → probe de recuperación).
+
+## Estrés concurrente sin oversell (H-07)
+
+`stress-test.ps1` dispara N compradores **simultáneos** (POST con `Idempotency-Key` única, 1 asiento, PAN aprobada) sobre un evento con X asientos y verifica las invariantes con salida imprimible:
+
+```powershell
+# N y X por parámetro. X por defecto = disponibilidad del evento al iniciar; con -X se
+# alinea pre-comprando (A-X) asientos (X > disponibilidad actual => exit 2, no se fabrican asientos).
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\stress-test.ps1 -N 20 -X 5 -EventId evt-mj-tribute-night
+```
+
+- **Qué verifica (exit 0 = PASS)**: exactamente `min(N,X)` `TICKETS_ISSUED` y `N-min(N,X)` rechazos explícitos (422 `seats-unavailable` o `FAILED` con motivo) — cero oversell; disponibilidad **nunca negativa** (muestreo durante toda la corrida) y final = `X - emitidas`; 100% de las compras en estado terminal dentro del plazo (**`-DeadlineSeconds`, default 120 s** — la saga p95 es ~0,8 s); e invariante de cierre `disponibilidad_final + emitidos == X`.
+- **Concurrencia real**: N `Task.Run` sobre un `HttpClient` compartido (`Add-Type`), sin el límite por defecto de 2 conexiones por host de .NET Framework.
+- Evidencia de corridas (N=20/X=5, N=8/X=7, N<X): [brain/evidence](brain/evidence/2026-11-14-S07-n2003-verification.md).
 
 ## Traza distribuida de una compra (correlation-id)
 

@@ -126,6 +126,18 @@ Registro de bloqueos resueltos (causa → fix → lección). Anti-bloqueo: 3 int
 
 **Lección:** un umbral de cobertura cableado en csproj se verifica con UN run que DEBA fallarlo — si no se vio romper el build, no está cableado. Y cuando parte de la cobertura depende de tests que se auto-omiten, el umbral se condiciona al modo donde ese conjunto corre (o el gate mide humo, no cobertura).
 
+## L-014 — PS 5.1 stress: DefaultConnectionLimit serializa "N concurrentes" a 2; y foreach sobre List[object] con PSCustomObject rompe el binder DLR (2026-11-14, Dev S07)
+
+**Síntoma (2 bugs del script de estrés, no de servicios):** (1) 20 POSTs "simultáneos" respondidos en 13-14 s — sin concurrencia real del lado del cliente; (2) crash "Los tipos de argumentos no coinciden" apuntando a un `foreach ($row in @($pending))` perfecto a simple vista.
+
+**Causa raíz:**
+1. .NET Framework limita por host a `ServicePointManager.DefaultConnectionLimit` = 2 por defecto (apps no-ASP.NET): 20 requests en cola de a 2 — la "carrera" era una fila india.
+2. El binder de arrays de PS 5.1 (`PSToObjectArrayBinder` → `PSEnumerableBinder.MaybeDebase` → `Expression.Condition`) lanza `ArgumentException` al enumerar `List[object]` de .NET que contiene `PSCustomObject` — bug conocido del DLR de PS 5.1, no del script.
+
+**Fix verificado:** (1) `ServicePointManager.DefaultConnectionLimit = 256` (+ `UseNagleAlgorithm=false`, `Expect100Continue=false`) en el static del helper `HttpClient` — N=4→57 ms, N=8→1,6 s de carrera; (2) arrays PS nativos (`$rows = @()` + `+=`) en vez de `List[object]` para colecciones que van a iterarse con `foreach`/`@()`. 3 corridas del stress PASS tras el fix.
+
+**Lección:** en PS 5.1, un cliente de carga debe subir `DefaultConnectionLimit` ANTES de hablar de concurrencia (si no, se mide la cola del cliente); y las colecciones que cruzan `foreach`/`@()` van en arrays PS nativos — `List[T]` de .NET con PSCustomObject dentro es una bomba del binder. Nota aparte: el techo de ESCRITURA concurrente del DynamoDB del emulador (~13 s para 20 POSTs con saga) es del emulador, no del cliente — documentarlo, no "fixearlo".
+
 ## L-013 — PS 5.1: .ps1 sin BOM se lee como ANSI, y el pipe de consola corrompe no-ASCII al capturar evidencia (2026-11-14, Dev S05)
 
 **Síntoma:** `trace-purchase.ps1` imprimía "Guardiǭn"/"â†'" (acentos y flechas corruptos) aunque el archivo en disco tenía los codepoints correctos; la evidencia capturada por redirección de stdout quedaba ilegible.
