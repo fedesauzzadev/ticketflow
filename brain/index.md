@@ -6,7 +6,7 @@
 TicketFlow: portfolio backend de venta de entradas para eventos de alta demanda — microservicios .NET 10 orquestados (saga), idempotencia observable, cache hit/miss observable, todo sobre servicios AWS del emulador oficial local (:9297, HTTPS+SigV4, CA propia). Dominio = PROPUESTA aprobada en G2. Plan técnico Fase 2: factory/plan.md.
 
 ## Active slice
-**mvp** (V0, H-01..H-04 de factory/backlog.md): **COMPLETO Y APROBADO G2 (2026-11-14)** — N-1001..N-1004 shipped (commit 97d7a7d, tag v0.1.0). QA F4 final: SHIP (2 rondas, F-01/F-02/F-03 resueltos, evidencia qa-r2-retest). Siguiente slice: **v1** (H-05..H-07: trazas distribuidas, resiliencia reintentos/DLQ/circuit breaker, estrés concurrente) — aprobado por Negocio en G2, PO especifica ACs primero.
+**v1** (H-05..H-07 + H-10 de factory/backlog.md): N-2001 trazas distribuidas · N-2002 resiliencia (backoff + DLQ + circuit breaker, absorbe F-05) · N-2003 estrés concurrente sin oversell · N-2004 pulido deuda QA (F-04/F-06/F-07). **G1 interno aprobado 2026-11-14** — plan V1 en factory/plan.md §V1 (sprints S05..S08, ADRs D-0011..D-0014). **S05/N-2001 verificado 2026-11-14** (trazas D-0011: 101/101 tests, 4 ACs con evidencia). V0/mvp: COMPLETO — N-1001..N-1004 shipped (commit 97d7a7d, tag v0.1.0), QA F4 SHIP en 2 rondas.
 
 ## Nodes
 | ID | Title | Type | Size | Status | Key links |
@@ -15,6 +15,10 @@ TicketFlow: portfolio backend de venta de entradas para eventos de alta demanda 
 | N-1002 | Saga de compra de entradas multi-servicio con compensación | feature | L | shipped | depends_on N-1001 · → D-0004, D-0006 · evidencia 2026-11-13-S02 |
 | N-1003 | Idempotencia observable de la compra (replay y duplicados) | feature | M | shipped | depends_on N-1002 · → D-0009 (claim condicional + hash canónico + 422s + log de dedup) · evidencia 2026-11-14-S03 |
 | N-1004 | Documentación de portfolio y scripts de demo | feature | M | shipped | depends_on N-1001..N-1003 · → D-0002, D-0008 · evidencia 2026-11-14-S04 |
+| N-2001 | Trazas distribuidas de la saga con correlation-id compartido | feature | M | verified | H-05 · depends_on N-1002 · slice v1 · → D-0011 · evidencia 2026-11-14-S05 |
+| N-2002 | Resiliencia observable bajo fallos inyectables (backoff, DLQ, circuit breaker) | feature | L | planned | H-06 · depends_on N-1002 · slice v1 · absorbe F-05 (AC5) · → D-0012, D-0013 |
+| N-2003 | Estrés concurrente sin oversell con resultado terminal garantizado | feature | M | planned | H-07 · depends_on N-1002 · slice v1 · → D-0014 |
+| N-2004 | Pulido post-QA: frontera Content-Type, catálogo limpio, cobertura .Api | feature | S | planned | H-10 · slice v1 · absorbe F-04/F-06/F-07 · plan §V1.2 |
 
 ## Decisions
 | ID | Título | Reversibility |
@@ -29,8 +33,13 @@ TicketFlow: portfolio backend de venta de entradas para eventos de alta demanda 
 | D-0008 | estructura solución (Api+Core por servicio + Shared.Infrastructure) y mapa de patrones | medium |
 | D-0009 | idempotencia observable S03: claim condicional de key, replay 200, mismatch/agotado 422, dedup por correlación | medium |
 | D-0010 | G2 aprobado: MVP entregado + git local (identidad placeholder) + V1 aprobada | easy |
+| D-0011 | trazas V1: correlation_id == purchase_id + logs a archivos + trace-purchase.ps1 | easy |
+| D-0012 | resiliencia V1: backoff en worker (3 intentos 0,5/1 s) + DLQ aplicativo + step-failed + breaker propio por downstream + inyección por endpoint admin | medium |
+| D-0013 | reserva atómica F-05: decremento idempotente single-item (ADD + NOT contains) | medium |
+| D-0014 | estrés V1: stress-test.ps1 PS 5.1 + Add-Type/HttpClient compartido, invariantes AC1..AC4 | easy |
 
 ## Evidence
+- 2026-11-14-S05-n2001-verification.md — S05/N-2001 VERIFICADO (trazas distribuidas D-0011): build 0/0 + 101/101 tests (3 nuevos TraceLogFormatTests del contrato de formato); compra aprobada → traza 10 líneas, 4/4 servicios (orders 7·catalog·payments·ticketing), cronológica por Timestamp ISO UTC, mismo correlation-id; PAN 0002 → reserva→DECLINED con motivo→release-seats→FAILED visible; 2 compras paralelas → 0 menciones cruzadas; grep global: 0 PANs/0 runs 13-19 dígitos/0 CVVs en TODOS los logs; run-local.ps1 redirige a .artifacts/logs/ y trace-purchase.ps1 (-OutFile UTF-8 BOM) filtra+ordena+guarda; hallazgo L-013 (BOM/consola PS 5.1).
 - fix-2026-11-14-qa-f01-f02-f03.md — RONDA FIX 1/2 POST-QA (F-01/F-02/F-03, dev): F-01 timeout efectivo (HttpClient.Timeout=ClientConfig.Timeout + MaxErrorRetry=0; unit 2/2 + e2e docker pause: GET/POST 500 a los 10,05 s —antes 150-240 s+—, workers loguean errores durante pausa, unpause ⇒ GET 200 + saga TICKETS_ISSUED completa); F-02 LICENSE MIT + CHANGELOG 0.1.0 + Version 0.1.0 en props (.gitignore verificado); F-03 umbral cobertura ≥70% Core cableado (coverlet.msbuild+CollectCoverage, condicional al env del emulador): suite 98/98 (96+2 nuevos) con 81,2/85,5/92,8/87,3% por Core, gate probado fallando (exit 1) y pasando; build 0/0 ×3. Enmienda D-0003, learnings L-011/L-012.
 - 2026-11-14-qa-f4-adversarial.md - QA F4 VERIFICADO (gate adversarial del MVP, veredicto SHIP): build limpio 0/0 + 96/96 x2 propia; cobertura medida (Core 81-93%, umbral no cableado F-03); 26 payloads hostiles 0x5xx; idempotencia concurrente 4xmisma key = 1 compra; CERO oversell en 3 carreras (incluida 6x201 sobre 3 asientos); replay post-FAILED sin efectos; demos exit 0 propios; p95 propio 5,8/22,7/768 ms; quickstart frio OK; endpoint AWS real rechazado al arranque; docker pause: requests cuelgan 150-240 s+ sin timeout efectivo (F-01 Mayor) con recovery limpia.
 - 2026-11-14-S04-n1004-verification.md — S04/N-1004 VERIFICADO (MVP completo): quickstart corrido desde cero (emulador detenido → run-local → flujo manual consulta→compra→ticket+compensación); demo-cache.ps1 exit 0 (MISS 499→HIT 499→compra→MISS 498); demo-idempotency.ps1 exit 0 (replay 200 misma compra+mismos tickets, disponibilidad 497→497, mismatch 422, agotado 422 con variante SEED_EVENTS); NFR-5 medido n=50 con HttpClient fiel: GET HIT p95 1,4 ms · POST p95 20,7 ms · saga p95 790 ms (los 3 < objetivo, raw en evidencia); 96/96; fix blocker run-local.ps1 camino frío (L-009) y lección de fidelidad del cliente de medición (L-010).
@@ -48,8 +57,11 @@ TicketFlow: portfolio backend de venta de entradas para eventos de alta demanda 
 - SNS fan-out sin entrega en el emulador → notificación por evento interno + log; revisar en V1 (L-002).
 - Cobertura NFR-6 (≥70% de los Core): umbral CABLEADO desde 2026-11-14 (coverlet.msbuild + CollectCoverage, scope=solo Core por suite, activo con env del emulador; L-012). Deuda V1: .Api sin tests in-proc (QA F-07).
 - Mensaje SQS recibido y no borrado (consumidor muerto) demora la compra ~30 s (visibility timeout FIFO); handlers idempotentes lo toleran — backoff/DLQ en H-06 (V1).
+- F-04..F-07 (Menores, QA F4 ronda 2, no bloquean): absorbidos en V1 — F-05 → H-06 AC5 (N-2002); F-04/F-06/F-07 → H-10 (N-2004). Ver factory/qa-report.md y factory/backlog.md (corte V1).
 
 ## Registry highlights
+- `ServiceLogging.AddServiceTraceLogging` → `src/Shared/TicketFlow.Shared.Infrastructure/Logging/ServiceLogging.cs`: contrato de traza D-0011 (JSON consola + Timestamp ISO-8601 UTC ancho fijo) consumido por los 4 `*.Api/Program.cs`; clavado por `TraceLogFormatTests`. Candidato a registry.
+- `trace-purchase.ps1` → `scripts/trace-purchase.ps1`: filtro de traza por correlation-id + sort cronológico + guardián anti-PAN/CVV (exit codes documentados). Consume `.artifacts/logs/` de run-local.ps1.
 - `EmulatorAwsClientFactory` → `src/Shared/TicketFlow.Shared.Infrastructure/EmulatorAwsClients.cs` (+ `PinnedCaHttpClientFactory`): composición SDK v4 contra el emulador (D-0003/L-001) — DynamoDB, **SQS y S3** desde S02. En registry.
 - `Saga` (Shared.Infrastructure/Saga) → `SagaMessage.cs` (envelope+contratos) + `SqsSagaTransport.cs` (ensure FIFO tolerante a carreras, send con group/dedup ids, `SqsSagaWorker` base con guard L-005): transporte completo de la saga — los 3 servicios nuevos + catálogo lo consumen. Candidato a registry.
 - `DynamoDbTables.EnsureAsync` → Shared.Infrastructure/DynamoDbTables.cs: creación idempotente tolerante a carreras (L-007) — la usan los 4 repos nuevos.

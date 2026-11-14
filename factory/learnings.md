@@ -125,3 +125,15 @@ Registro de bloqueos resueltos (causa → fix → lección). Anti-bloqueo: 3 int
 **Fix verificado:** `<CollectCoverage>true</CollectCoverage>` + umbral condicionado: `Threshold=70` si `$(AWS_EMULATOR_ACCESS_KEY_ID)` está seteada, `0` si no. Probado en ambos sentidos: suite completa con env 98/98 + umbral pasando (81-93% por Core); run filtrado con env → `error : The total line coverage is below the specified 70`, exit 1; sin env → verde.
 
 **Lección:** un umbral de cobertura cableado en csproj se verifica con UN run que DEBA fallarlo — si no se vio romper el build, no está cableado. Y cuando parte de la cobertura depende de tests que se auto-omiten, el umbral se condiciona al modo donde ese conjunto corre (o el gate mide humo, no cobertura).
+
+## L-013 — PS 5.1: .ps1 sin BOM se lee como ANSI, y el pipe de consola corrompe no-ASCII al capturar evidencia (2026-11-14, Dev S05)
+
+**Síntoma:** `trace-purchase.ps1` imprimía "Guardiǭn"/"â†'" (acentos y flechas corruptos) aunque el archivo en disco tenía los codepoints correctos; la evidencia capturada por redirección de stdout quedaba ilegible.
+
+**3 intentos:** (1) `[Console]::OutputEncoding=UTF8` en el powershell hijo + Out-File utf8 — siguió corrupto (el writer de consola de .NET Framework ya estaba creado); (2) capturar el Information stream (`6>&1 | Out-File`) dentro del hijo — seguía cruzando el render del host con codepage OEM; (3) fix estructural: el script escribe su reporte con `[IO.File]::WriteAllText` + `UTF8Encoding($true)` (parámetro `-OutFile`) — inmune por construcción.
+
+**Causa raíz (2 capas):** (a) PS 5.1 parsea .ps1 SIN BOM como ANSI → los literales con acentos se corrompen al PARSEAR; (b) el codepage de consola (OEM 850) no representa á/→ y aplica best-fit '?' al escribir stdout redirigido — cualquier captura por pipe manglea.
+
+**Fix verificado:** BOM UTF-8 en todos los .ps1 (verificado por bytes EF BB BF; el edit de archivos EXISTENTES lo había dejado sin BOM — re-chequear tras editar) + reportes a archivo por .NET UTF-8 BOM. Evidencia S05 §6 legible byte a byte.
+
+**Lección:** en PS 5.1, texto no-ASCII que deba sobrevivir (evidencia, reportes) se escribe con .NET (`WriteAllText` + UTF8 BOM), nunca por pipe/redirect de consola; y todo .ps1 nuevo del repo lleva BOM. Los mensajes que SÍ cruzan consola van en ASCII puro.

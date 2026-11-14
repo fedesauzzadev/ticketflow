@@ -5,11 +5,12 @@ using Amazon.SQS;
 using TicketFlow.Payments.Core.Application;
 using TicketFlow.Payments.Core.Infrastructure;
 using TicketFlow.Shared.Infrastructure;
+using TicketFlow.Shared.Infrastructure.Logging;
 using TicketFlow.Shared.Infrastructure.Saga;
 
 var builder = WebApplication.CreateBuilder(args);
 
-builder.Logging.AddJsonConsole();
+builder.Logging.AddServiceTraceLogging(); // JSON + Timestamp ISO UTC (contrato de traza D-0011)
 
 var awsOptions = EmulatorAwsOptions.FromEnvironment();
 builder.Services.AddSingleton(awsOptions);

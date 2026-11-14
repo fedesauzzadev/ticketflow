@@ -35,6 +35,9 @@ public sealed class SagaProcessManager(
                 await outbox.EnqueueAsync(SagaQueues.PaymentsCommands, SagaTypes.AuthorizePayment,
                     envelope.PurchaseId,
                     new AuthorizePaymentCommand(purchase.Pan, evt.UnitPrice * purchase.Seats), ct);
+                logger.LogInformation(
+                    "compra {PurchaseId}: paso 'seats-reserved' → SEATS_RESERVED; emito authorize-payment",
+                    envelope.PurchaseId);
                 break;
             }
 
@@ -50,15 +53,21 @@ public sealed class SagaProcessManager(
                 if (purchase is null) return;
                 await outbox.EnqueueAsync(SagaQueues.TicketingCommands, SagaTypes.IssueTickets,
                     envelope.PurchaseId, new IssueTicketsCommand(purchase.EventId, purchase.Seats), ct);
+                logger.LogInformation(
+                    "compra {PurchaseId}: paso 'payment-approved' → PAYMENT_APPROVED; emito issue-tickets",
+                    envelope.PurchaseId);
                 break;
             }
 
             case SagaTypes.TicketsIssued:
             {
                 var evt = envelope.PayloadAs<TicketsIssuedEvent>();
-                await purchases.TryTransitionAsync(envelope.PurchaseId,
-                    PurchaseStatus.PAYMENT_APPROVED, PurchaseStatus.TICKETS_ISSUED,
-                    ticketIds: evt.TicketIds, ct: ct);
+                if (await purchases.TryTransitionAsync(envelope.PurchaseId,
+                        PurchaseStatus.PAYMENT_APPROVED, PurchaseStatus.TICKETS_ISSUED,
+                        ticketIds: evt.TicketIds, ct: ct))
+                    logger.LogInformation(
+                        "compra {PurchaseId}: paso 'tickets-issued' → TICKETS_ISSUED — saga completa",
+                        envelope.PurchaseId);
                 break;
             }
 
@@ -75,6 +84,9 @@ public sealed class SagaProcessManager(
                 if (purchase is null) return;
                 await outbox.EnqueueAsync(SagaQueues.CatalogCommands, SagaTypes.ReleaseSeats,
                     envelope.PurchaseId, new ReleaseSeatsCommand(purchase.EventId, purchase.Seats), ct);
+                logger.LogInformation(
+                    "compra {PurchaseId}: paso 'payment-declined' ({Reason}) → compensación: emito release-seats",
+                    envelope.PurchaseId, evt.Reason);
                 break;
             }
 
@@ -83,17 +95,23 @@ public sealed class SagaProcessManager(
                 // Compensación completada: ahora sí FAILED con el motivo visible (H-02 AC3).
                 var purchase = await purchases.GetAsync(envelope.PurchaseId, ct);
                 if (purchase is null) return;
-                await purchases.TryTransitionAsync(envelope.PurchaseId,
-                    PurchaseStatus.SEATS_RESERVED, PurchaseStatus.FAILED,
-                    reason: purchase.PendingFailureReason ?? "pago rechazado y asientos liberados", ct: ct);
+                if (await purchases.TryTransitionAsync(envelope.PurchaseId,
+                        PurchaseStatus.SEATS_RESERVED, PurchaseStatus.FAILED,
+                        reason: purchase.PendingFailureReason ?? "pago rechazado y asientos liberados", ct: ct))
+                    logger.LogInformation(
+                        "compra {PurchaseId}: paso 'seats-released' → FAILED — compensación completada, asiento liberado",
+                        envelope.PurchaseId);
                 break;
             }
 
             case SagaTypes.SeatsUnavailable:
             {
                 var evt = envelope.PayloadAs<SeatsUnavailableEvent>();
-                await purchases.TryTransitionAsync(envelope.PurchaseId,
-                    PurchaseStatus.PENDING, PurchaseStatus.FAILED, reason: evt.Reason, ct: ct);
+                if (await purchases.TryTransitionAsync(envelope.PurchaseId,
+                        PurchaseStatus.PENDING, PurchaseStatus.FAILED, reason: evt.Reason, ct: ct))
+                    logger.LogInformation(
+                        "compra {PurchaseId}: paso 'seats-unavailable' → FAILED ({Reason})",
+                        envelope.PurchaseId, evt.Reason);
                 break;
             }
 

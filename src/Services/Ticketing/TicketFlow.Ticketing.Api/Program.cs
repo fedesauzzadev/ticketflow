@@ -4,13 +4,14 @@ using Amazon.DynamoDBv2;
 using Amazon.S3;
 using Amazon.SQS;
 using TicketFlow.Shared.Infrastructure;
+using TicketFlow.Shared.Infrastructure.Logging;
 using TicketFlow.Shared.Infrastructure.Saga;
 using TicketFlow.Ticketing.Core.Application;
 using TicketFlow.Ticketing.Core.Infrastructure;
 
 var builder = WebApplication.CreateBuilder(args);
 
-builder.Logging.AddJsonConsole();
+builder.Logging.AddServiceTraceLogging(); // JSON + Timestamp ISO UTC (contrato de traza D-0011)
 
 var awsOptions = EmulatorAwsOptions.FromEnvironment();
 builder.Services.AddSingleton(awsOptions);

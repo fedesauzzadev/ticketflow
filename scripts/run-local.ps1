@@ -1,9 +1,13 @@
-# Levanta el entorno local de TicketFlow (S02): emulador AWS + los 4 servicios.
+﻿# Levanta el entorno local de TicketFlow (S02): emulador AWS + los 4 servicios.
 #   1. Emulador caído -> lo arranca (contenedor existente o build+run documentado).
 #   2. Extrae credenciales + CA de la corrida ACTUAL del emulador (se regeneran por arranque).
 #   3. Build (0 warnings exigido por Directory.Build.props).
 #   4. Inyecta todo por env (cero secrets en el repo, D-0003) y corre los 4 servicios:
 #      Catálogo :5080 · Órdenes :5081 · Pagos :5082 · Ticketing :5083 (D-0008).
+#      Logs de cada servicio a .artifacts\logs\<svc>.log (+ <svc>.err.log) — trazas
+#      filtrables por compra: scripts\trace-purchase.ps1 -PurchaseId <id> (D-0011).
+#      Tail en vivo: Get-Content .artifacts\logs\orders.log -Wait. Cada arranque
+#      trunca los logs (Start-Process redirect sobrescribe).
 # Ctrl+C detiene el script Y los 4 servicios (finally).
 # Requisitos: Docker Desktop + .NET 10 SDK. Uso: powershell -NoProfile -ExecutionPolicy Bypass -File scripts\run-local.ps1
 [CmdletBinding()]
@@ -15,10 +19,10 @@ $secretsDir = Join-Path $root '.secrets'
 $container = 'aws-emulator'
 
 $services = @(
-    @{ Name = 'Catálogo';  Project = 'src/Services/Catalog/TicketFlow.Catalog.Api';       Port = 5080; Probe = '/events' },
-    @{ Name = 'Órdenes';   Project = 'src/Services/Orders/TicketFlow.Orders.Api';         Port = 5081; Probe = '/health' },
-    @{ Name = 'Pagos';     Project = 'src/Services/Payments/TicketFlow.Payments.Api';     Port = 5082; Probe = '/health' },
-    @{ Name = 'Ticketing'; Project = 'src/Services/Ticketing/TicketFlow.Ticketing.Api';   Port = 5083; Probe = '/health' }
+    @{ Name = 'Catálogo';  Log = 'catalog';   Project = 'src/Services/Catalog/TicketFlow.Catalog.Api';       Port = 5080; Probe = '/events' },
+    @{ Name = 'Órdenes';   Log = 'orders';    Project = 'src/Services/Orders/TicketFlow.Orders.Api';         Port = 5081; Probe = '/health' },
+    @{ Name = 'Pagos';     Log = 'payments';  Project = 'src/Services/Payments/TicketFlow.Payments.Api';     Port = 5082; Probe = '/health' },
+    @{ Name = 'Ticketing'; Log = 'ticketing'; Project = 'src/Services/Ticketing/TicketFlow.Ticketing.Api';   Port = 5083; Probe = '/health' }
 )
 
 # --- 1) Emulador arriba ------------------------------------------------------
@@ -83,16 +87,22 @@ dotnet build (Join-Path $root 'TicketFlow.sln') | Out-Null
 if ($LASTEXITCODE -ne 0) { throw 'Build falló.' }
 
 # --- 4) Los 4 servicios --------------------------------------------------------
+# Logs a archivo (D-0011): PS 5.1 no permite redirigir stdout y stderr al mismo
+# archivo → .log (JSON de la saga) + .err.log (diagnóstico). .artifacts/ gitignored.
+$logsDir = Join-Path $root '.artifacts\logs'
+New-Item -ItemType Directory -Force -Path $logsDir | Out-Null
 $procs = @()
 try {
     foreach ($s in $services) {
         $env:SERVICE_PORT = "$($s.Port)" # cada hijo captura su propio puerto al iniciar
-        Write-Host "==> $($s.Name) en http://localhost:$($s.Port)"
+        Write-Host "==> $($s.Name) en http://localhost:$($s.Port) (logs: .artifacts\logs\$($s.Log).log)"
         # PS 5.1: ArgumentList como array NO cita paths con espacios (repo "MichaelJackson AWS")
         # → string único con las comillas explícitas.
         $project = Join-Path $root $s.Project
         $procs += Start-Process -FilePath 'dotnet' `
             -ArgumentList ('run --project "{0}" --no-build' -f $project) `
+            -RedirectStandardOutput (Join-Path $logsDir "$($s.Log).log") `
+            -RedirectStandardError (Join-Path $logsDir "$($s.Log).err.log") `
             -PassThru -NoNewWindow
     }
     $env:SERVICE_PORT = '5080' # restauro el default para no dejar env raro en la sesión
@@ -116,6 +126,7 @@ try {
     Write-Host '    GET  http://localhost:5082/payments/{purchase_id}       (evidencia del paso de pago)'
     Write-Host '    GET  http://localhost:5083/tickets/{id}                 (entrada + qr_s3_key)'
     Write-Host '    PAN aprobada: cualquier terminación EXCEPTO 0002 · PAN rechazada: termina 0002 (compensación)'
+    Write-Host '==> Traza de una compra (H-05): scripts\trace-purchase.ps1 -PurchaseId <purchase_id>  ·  tail en vivo: Get-Content .artifacts\logs\orders.log -Wait'
     Write-Host '==> Ctrl+C detiene los 4 servicios.'
     Wait-Process -Id ($procs.Id)
 }

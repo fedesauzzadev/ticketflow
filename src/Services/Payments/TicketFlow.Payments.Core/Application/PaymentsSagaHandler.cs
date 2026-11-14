@@ -40,6 +40,11 @@ public sealed class PaymentsSagaHandler(IPaymentRepository payments, ILogger<Pay
                 envelope.PurchaseId);
         }
 
+        // Paso de la saga trazable (D-0011): la decisión con su motivo — el PAN nunca (solo últimos 4 en el pago persistido).
+        logger.LogInformation("compra {PurchaseId}: paso 'authorize-payment' → {Decision} ({Reason}): emito {Evento}",
+            envelope.PurchaseId, approved ? "APPROVED" : "DECLINED", reason ?? "-",
+            approved ? SagaTypes.PaymentApproved : SagaTypes.PaymentDeclined);
+
         return approved
             ? Envelope(envelope.PurchaseId, SagaTypes.PaymentApproved, new PaymentApprovedEvent(command.Amount))
             : Envelope(envelope.PurchaseId, SagaTypes.PaymentDeclined,

@@ -124,6 +124,23 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts\run-local.ps1
 
 (formato `id|nombre|fecha|precio|disponibilidad`; el seed es condicional — no pisa eventos existentes)
 
+## Traza distribuida de una compra (correlation-id)
+
+Cada compra es su propio correlation-id (`purchase_id`, D-0011): nace en `POST /purchases`, viaja en el envelope de la saga por SQS y aparece en el log JSON de los 4 servicios. `run-local.ps1` redirige los logs a `.artifacts\logs\<svc>.log` (cada arranque los trunca), así que la traza de punta a punta se filtra post-hoc:
+
+```powershell
+# compra aprobada o compensada (PAN termina 0002): pasos en orden cronológico + guardián anti-PAN/CVV
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\trace-purchase.ps1 -PurchaseId pur-<32hex>
+
+# comando crudo equivalente (sin script):
+Select-String ".artifacts\logs\*.log" -Pattern 'pur-<32hex>' -SimpleMatch
+
+# seguir los logs de un servicio en vivo mientras comprás:
+Get-Content .artifacts\logs\orders.log -Wait
+```
+
+`trace-purchase.ps1` imprime la tabla `timestamp | servicio | nivel | mensaje` ordenada cronológicamente, un resumen por servicio y sale con código distinto de 0 si la traza contiene un PAN (13-19 dígitos) o un CVV.
+
 ## Mapa de patrones aplicados
 
 | Patrón | Dónde vive |

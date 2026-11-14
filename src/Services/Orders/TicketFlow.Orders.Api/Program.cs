@@ -7,12 +7,14 @@ using TicketFlow.Orders.Core.Application;
 using TicketFlow.Orders.Core.Domain;
 using TicketFlow.Orders.Core.Infrastructure;
 using TicketFlow.Shared.Infrastructure;
+using TicketFlow.Shared.Infrastructure.Logging;
 using TicketFlow.Shared.Infrastructure.Saga;
 
 var builder = WebApplication.CreateBuilder(args);
 
 // Logging JSON de consola con purchase_id en scope: la saga se narra sola (D-0003).
-builder.Logging.AddJsonConsole();
+// Contrato de traza D-0011: Timestamp ISO UTC ordenable (trace-purchase.ps1).
+builder.Logging.AddServiceTraceLogging();
 
 // Config 100% por env, validada fail-fast al arranque (NFR-1 / D-0003).
 var awsOptions = EmulatorAwsOptions.FromEnvironment();

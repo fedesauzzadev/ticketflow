@@ -6,11 +6,12 @@ using TicketFlow.Catalog.Core.Application;
 using TicketFlow.Catalog.Core.Domain;
 using TicketFlow.Catalog.Core.Infrastructure;
 using TicketFlow.Shared.Infrastructure;
+using TicketFlow.Shared.Infrastructure.Logging;
 
 var builder = WebApplication.CreateBuilder(args);
 
-// Logging JSON de consola, cero deps extra (D-0003).
-builder.Logging.AddJsonConsole();
+// Logging JSON de consola, cero deps extra (D-0003). Contrato de traza D-0011.
+builder.Logging.AddServiceTraceLogging();
 
 // Config 100% por env, validada fail-fast al arranque (NFR-1 / D-0003).
 var awsOptions = EmulatorAwsOptions.FromEnvironment();

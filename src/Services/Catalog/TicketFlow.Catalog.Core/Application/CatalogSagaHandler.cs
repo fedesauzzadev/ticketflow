@@ -47,11 +47,19 @@ public sealed class CatalogSagaHandler(
                 "comando 'reserve-seats' de compra {PurchaseId} duplicado detectado: efecto descartado (idempotencia por correlación)",
                 envelope.PurchaseId);
         if (result.Outcome == ReservationOutcome.Unavailable)
+        {
+            logger.LogInformation(
+                "compra {PurchaseId}: paso 'reserve-seats' → SIN disponibilidad para {EventId}: emito seats-unavailable",
+                envelope.PurchaseId, command.EventId);
             return [Envelope(envelope.PurchaseId, SagaTypes.SeatsUnavailable,
                 new SeatsUnavailableEvent(command.EventId, "sin disponibilidad suficiente o evento inexistente"))];
+        }
 
         // H-01 AC2: la compra invalida el cache (también en el ack de un duplicado).
         await availability.InvalidateAsync(command.EventId, ct);
+        logger.LogInformation(
+            "compra {PurchaseId}: paso 'reserve-seats' → {Seats} asiento(s) reservado(s) para {EventId} @ {UnitPrice}: emito seats-reserved",
+            envelope.PurchaseId, command.Seats, command.EventId, result.UnitPrice);
         return [Envelope(envelope.PurchaseId, SagaTypes.SeatsReserved,
             new SeatsReservedEvent(command.EventId, result.UnitPrice))];
     }
@@ -68,7 +76,12 @@ public sealed class CatalogSagaHandler(
 
         var outcome = await reservations.ReleaseAsync(command.EventId, envelope.PurchaseId, command.Seats, ct);
         if (outcome == ReleaseOutcome.Released)
+        {
             await availability.InvalidateAsync(command.EventId, ct);
+            logger.LogInformation(
+                "compra {PurchaseId}: paso 'release-seats' (compensación) → {Seats} asiento(s) liberado(s) para {EventId}: emito seats-released",
+                envelope.PurchaseId, command.Seats, command.EventId);
+        }
         else
             logger.LogInformation(
                 "comando 'release-seats' de compra {PurchaseId} duplicado detectado: efecto descartado (idempotencia por correlación)",
