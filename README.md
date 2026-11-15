@@ -74,6 +74,34 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts\provision.ps1 -Verif
 - Los servicios **conservan su ensure defensivo de arranque** (decisión D-0019): `run-local.ps1` funciona sin provision previo — el manifiesto es la fuente de verdad de la lista, el ensure es resiliencia de runtime.
 - La tool (`tools/TicketFlow.Provision`) reusa la plomería verificada de `Shared.Infrastructure` (CA pineada, SigV4, ensure tolerante a carreras).
 
+## CI local: todo el gate en un comando (H-08)
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\ci.ps1          # preflight -> build 0 warnings -> suite completa -> cobertura >=70% Core -> infra-verify -> workflow-lint
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\ci.ps1 -Demos  # ademas corre las 3 demos (levanta los servicios si no estan y cierra SOLO lo que levanto)
+```
+
+La **primera etapa que falla es la culpable** del `exit != 0`: el pipeline se corta ahí y el
+resumen final lista cada etapa con veredicto y duración. `preflight` deja el emulador arriba
+(lo arranca si hace falta, misma plomería del quickstart) e inyecta creds/CA al env, con lo
+que la suite corre completa (integración incluida) y el **umbral de cobertura ≥70% de los
+Core** queda activo (cableado a los csproj): fallar el umbral falla la etapa `tests`.
+**Corré el CI con los servicios abajo**: los e2e de saga compiten por las colas compartidas
+si hay servicios vivos en :5080..5083 (el propio `-Demos` los levanta recién después de la
+etapa `tests` y los cierra al terminar — solo lo que él levantó).
+
+### El workflow de GitHub Actions (artefacto de portfolio)
+
+`.github/workflows/ci.yml` está versionado como **artefacto**: el repo **no tiene remote**,
+así que no corre hoy — pero correría **sin cambios** si lo ganara, porque no reimplementa
+nada: invoca **el mismo `scripts/ci.ps1`** que corre el dueño (cero deriva local/CI). En un
+runner real (`ubuntu-latest` trae Docker), el `preflight` levantaría el emulador AWS con el
+Docker del propio job (build de `aws-emulator/` + `docker run` — `emulator-env.ps1` ya sabe
+hacerlo) y la suite completa correría contra ese emulador del job. La validación local del
+YAML es **estructural** (`scripts\validate-workflow.ps1`, etapa `workflow-lint`): PS 5.1 no
+tiene parser YAML — se chequean las invariantes (`on:`, `jobs:`, `runs-on:`, checkout,
+`setup-dotnet` 10.x, invocación de `ci.ps1`, indentación sin tabs).
+
 ## Probar el flujo a mano
 
 Copia y pega en otra ventana de PowerShell. Cada bloque es independiente salvo los ids que generan los anteriores.

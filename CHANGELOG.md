@@ -7,12 +7,27 @@ versionado [SemVer](https://semver.org/lang/es/).
 
 ### Agregado
 
+- **CI local en un comando + workflow artefacto** (H-08 AC1..AC5): `scripts\ci.ps1` corre
+  todo el gate (preflight → build 0 warnings → suite completa contra el emulador con umbral
+  de cobertura ≥70% de los Core → infra-verify → workflow-lint; `-Demos` agrega las 3 demos
+  con cierre ordenado) — la primera etapa que falla es la culpable del `exit != 0`.
+  `.github/workflows/ci.yml` está versionado como artefacto (repo sin remote) e invoca el
+  MISMO script: cero deriva local/CI.
 - **IaC declarativa del emulador** (H-08 AC6..AC9): manifiesto `infra/aws-local.json`
   (6 tablas DynamoDB + 4 colas FIFO + 4 DLQs + bucket S3) aplicado/verificado por
   `tools/TicketFlow.Provision` vía `scripts\provision.ps1` (idempotente — aplicar N
   veces deja el mismo conjunto; `-Verify` lista lo real y difunde contra el manifiesto,
   exit 1 si falta o difiere). Guard test clava manifiesto ↔ constantes de código; los
   servicios conservan su ensure defensivo de arranque (D-0019). Suite: 155/155.
+
+### Corregido
+
+- **F-V1-R3-01** (QA V1 ronda 3): `GET /admin/dlq` / `PeekDlqAsync` enumeraba UNA página de
+  10 y `demo-resilience.ps1` flakeaba cuando la DLQ de Pagos acumulaba >10 entradas de
+  corridas previas. Ahora enumera la DLQ completa sin borrar (páginas con visibilidad corta
+  + dedup por MessageId, tope 500 documentado) y el demo encuentra SU entrega
+  deterministicamente. Restaurados los asserts de contenido DLQ de los e2e (retirados por
+  el mismo flake en el fix de F-V1-R2-01). Suite: 157/157.
 
 ## [0.2.0] - 2026-11-15
 

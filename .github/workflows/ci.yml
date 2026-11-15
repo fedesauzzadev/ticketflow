@@ -1,0 +1,35 @@
+# CI de TicketFlow (H-08 AC3, D-0020) — ARTEFACTO DE PORTFOLIO: el repo NO tiene remote,
+# este workflow no corre hoy. Está versionado para correr SIN CAMBIOS cuando lo gane:
+# invoca el MISMO gate que el dueño corre localmente (scripts/ci.ps1) — cero deriva.
+#
+# Qué ejecutaría en un runner real (ubuntu-latest trae Docker):
+#   1. actions/checkout + setup-dotnet 10.x.
+#   2. scripts/ci.ps1 hace TODO: su preflight levanta el emulador AWS con el Docker del
+#      propio job (build de aws-emulator/ + docker run: emulator-env.ps1 ya sabe hacerlo
+#      cuando el contenedor no existe), extrae creds/CA de esa corrida y corre las etapas
+#      preflight -> build (0 warnings) -> suite completa contra el emulador del job (umbral
+#      de cobertura >=70% de los Core activo) -> infra-verify -> workflow-lint. La primera
+#      etapa que falla falla el job con el culpable identificado en el resumen.
+#   Alternativa si la imagen del emulador no se pudiera servir en algún runner: subset sin
+#   emulador (los tests de integración se auto-omiten sin AWS_EMULATOR_*): NO configurada —
+#   la cobertura de los Core vive en los tests de integración; un CI sin emulador mide humo.
+#
+# Validación local (sin remote): scripts/validate-workflow.ps1 — invariantes estructurales
+# (PS 5.1 no tiene parser YAML); corre como etapa workflow-lint del propio ci.ps1.
+# Portabilidad: ci.ps1 es compatible PS 5.1 y sus binarios (docker, dotnet) son
+# multiplataforma; la etapa -Demos es solo local (Windows).
+name: ci
+on: [push, pull_request]
+jobs:
+  gate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: .NET 10
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.x'
+      - name: Gate local (el mismo script que corre el dueño)
+        shell: pwsh
+        run: pwsh -File scripts/ci.ps1

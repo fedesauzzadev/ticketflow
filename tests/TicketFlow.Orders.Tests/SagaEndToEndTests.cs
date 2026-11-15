@@ -367,10 +367,10 @@ public sealed class SagaEndToEndTests
             var stored = await h.CatalogRepo.GetByIdAsync(eventId, ct);
             Assert.Equal(initial - 2, stored!.Available);
 
-            // Sin assert de contenido DLQ: las DLQ compartidas son peek-only (solo acumulan) y
-            // el peek entrega una página de 10 con orden no determinístico entre grupos — con
-            // deuda acumulada el assert flakea (visto en corrida 2026-11-15). Inspeccionabilidad
-            // de la DLQ: WorkerBackoffDlqTests (cola dedicada por corrida, determinista).
+            // DLQ inspeccionable (AC2, restaurado — F-V1-R3-01): la enumeración completa del
+            // peek hace el assert determinista aun con deuda acumulada en la DLQ compartida.
+            var catalogDlq = await h.Transport.PeekDlqAsync(SagaQueues.CatalogCommands, ct);
+            Assert.Contains(catalogDlq, e => e.PurchaseId == purchase.PurchaseId);
         }
         finally
         {
@@ -429,11 +429,14 @@ public sealed class SagaEndToEndTests
             var stored = await h.CatalogRepo.GetByIdAsync(eventId, ct);
             Assert.Equal(initial - 1, stored!.Available);
 
-            // Sin assert de contenido DLQ: las DLQ compartidas son peek-only (nunca se vacían)
-            // y el peek entrega una sola página de 10 — con deuda acumulada el assert sería
-            // no-determinístico por profundidad. Inspeccionabilidad: WorkerBackoffDlqTests
-            // (cola dedicada) + e2e F-V1-01. Lo esencial de F-V1-R2-01 es lo asertado arriba:
-            // el 2do step-failed LLEGÓ (terminal + reason) — antes lo tragaba el dedup.
+            // DLQ inspeccionable (restaurado, F-V1-R3-01): AMBAS entregas fallidas (paso +
+            // compensación) están en sus DLQs — la enumeración completa tolera la deuda de
+            // corridas previas. Lo esencial de F-V1-R2-01 sigue asertado arriba: el 2do
+            // step-failed LLEGÓ (terminal + reason) — antes lo tragaba el dedup.
+            var ticketingDlq = await h.Transport.PeekDlqAsync(SagaQueues.TicketingCommands, ct);
+            Assert.Contains(ticketingDlq, e => e.PurchaseId == purchase.PurchaseId);
+            Assert.Contains(await h.Transport.PeekDlqAsync(SagaQueues.CatalogCommands, ct),
+                e => e.PurchaseId == purchase.PurchaseId);
         }
         finally
         {

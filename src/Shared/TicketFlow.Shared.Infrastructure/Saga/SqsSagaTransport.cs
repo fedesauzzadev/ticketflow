@@ -97,21 +97,42 @@ public sealed class SqsSagaTransport(IAmazonSQS sqs)
             : queueName + "-dlq.fifo";
 
     /// <summary>
-    /// Peek de la DLQ (D-0012): receive con VisibilityTimeout=0 y SIN delete — el mensaje
-    /// sigue en la cola y vuelve a estar visible de inmediato (inspeccionable N veces).
-    /// shortcut: una sola página de 10 — la DLQ es evidencia de fallos, no cola de trabajo.
+    /// Peek de la DLQ (D-0012) SIN borrar, enumerándola COMPLETA (D-0020, F-V1-R3-01): loop
+    /// de recepciones de a 10 con VisibilityTimeout=2 — la ventana corta rota las páginas
+    /// (con 0 el emulador devuelve siempre la misma primera) — deduplicando por MessageId.
+    /// Una pasada sin aportes deja al lote anterior invisible: la pasada inmediata siguiente
+    /// cava más profundo; dos consecutivas sin aportes = DLQ completa (tope 50 pasadas / 500
+    /// entradas: la DLQ es evidencia de fallos, no cola de trabajo). Al volver, todo está de
+    /// nuevo visible (se espera la expiración de la ventana): el peek no muta la cola.
     /// </summary>
     public async Task<IReadOnlyList<SagaDlqEntry>> PeekDlqAsync(string consumedQueueName, CancellationToken ct)
     {
         var url = await EnsureQueueAsync(DlqQueueOf(consumedQueueName), ct);
-        var response = await sqs.ReceiveMessageAsync(new ReceiveMessageRequest
+        var seen = new Dictionary<string, SagaDlqEntry>();
+        var idlePasses = 0;
+        for (var pass = 0; pass < 50 && seen.Count < 500; pass++)
         {
-            QueueUrl = url,
-            MaxNumberOfMessages = 10,
-            VisibilityTimeout = 0,
-        }, ct);
-        if (response.Messages is not { Count: > 0 }) return []; // como L-005: Messages=null si vacía
-        return [.. response.Messages.Select(SagaDlqEntry.From)];
+            var response = await sqs.ReceiveMessageAsync(new ReceiveMessageRequest
+            {
+                QueueUrl = url,
+                MaxNumberOfMessages = 10,
+                VisibilityTimeout = 2,
+            }, ct);
+            var added = 0;
+            if (response.Messages is { Count: > 0 }) // como L-005: Messages=null si vacía
+                foreach (var message in response.Messages)
+                    if (seen.TryAdd(message.MessageId, SagaDlqEntry.From(message)))
+                        added++;
+            if (added > 0)
+            {
+                idlePasses = 0;
+                continue;
+            }
+            if (++idlePasses >= 2) break; // dos pasadas seguidas sin aportes: está completa
+        }
+        if (seen.Count > 0)
+            await Task.Delay(TimeSpan.FromSeconds(2.2), ct); // ventana vencida: todo vuelve a verse
+        return [.. seen.Values];
     }
 }
 
