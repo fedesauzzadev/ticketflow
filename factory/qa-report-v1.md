@@ -1,4 +1,10 @@
-﻿# QA Report V1 - TicketFlow (H-05..H-07 + H-10) - Fase 4-bis adversarial
+# QA Report V1 - TicketFlow (H-05..H-07 + H-10) - Fase 4-bis adversarial
+
+> **RONDA 3 FINAL (2026-11-15): SHIP - ver Ronda 3 + veredicto final al final.** F-V1-R2-01 cerrado con evidencia propia (ambos repros -> FAILED terminal con reason). Historico R2: NO-SHIP por F-V1-R2-01 (dedup del transporte tragaba el step-failed de la compensacion); F-V1-01/02/03/04 verificados OK en R2.
+> Fix F-V1-01 verificado en su repro original, pero el adversarial de QA halo
+> F-V1-R2-01 (Mayor): el dedup del transporte traga el step-failed de la compensacion
+> cuando ya hubo un step-failed previo -> compra no-terminal eterna por otra via.
+> F-V1-02/03/04 verificados OK. Evidencia: brain/evidence/2026-11-15-qa-v1-r2-retest.md.
 
 Fecha: 2026-11-14/15 - Auditor: QA adversarial (factory) - Skill: security-audit (guidance)
 Inputs: factory/plan.md SS-V1 (NFRs vigentes, D-0011..D-0014), factory/backlog.md (ACs V1),
@@ -154,3 +160,126 @@ Riesgo residual declarado (no bloqueante):
 - /admin/* sin auth en demo local (localhost-only, sin datos sensibles): documentar en README o toggle env.
 - Estado del emulador en memoria + SNS sin entrega + cache in-app: limitaciones ya declaradas del equipo.
 - Techo de escritura concurrente del emulador (~14-15 s para 20 POSTs): conocido, no es del producto.
+
+## Ronda 2 - retest del dev loop (2026-11-15, QA adversarial, scope cerrado a F-V1-01..04 + regresion)
+
+Inputs: fixes 6ad4e5e (F-V1-01), 5a08055 (F-V1-02/F-V1-04), 417c1e9 (F-V1-03) sobre HEAD 706653b.
+100% evidencia propia (servicios levantados por QA con el build nuevo; cruda en
+brain/evidence/2026-11-15-qa-v1-r2-retest.md, logs en logs-run2\).
+
+### Resultado por hallazgo
+
+| ID r1 | Resultado | Evidencia propia |
+|-------|-----------|------------------|
+| F-V1-01 | **Fix VERIFICADO en el repro original** - persistent release-seats + PAN 0002: pur-a84836...e70b FAILED terminal en ~2,2 s con reason que declara el asiento huerfano y apunta a la DLQ; avail 495->494 explicito (coincide con el reason, sin drift oculto); DLQ Catalogo 1 entrada release-seats; 3 intentos -> silencio (nada eterno); T+45s/T+3min/post-DELETE estable. **PERO** el adversarial sobre el fix halo F-V1-R2-01 (abajo): la clase sobrevive por el transporte | logs-run2\orders.log + catalog.log; %TEMP%\opencode\qa-v1r2 |
+| F-V1-02 | **VERIFICADO** - CHANGELOG [Unreleased] con V1 (H-05..H-07 + H-10, 131->135, Corregido F-V1-01/F-V1-04, 0.2.0 post-gate); README l.201 **135/135** y l.120 **los 4 scripts** | CHANGELOG.md l.6-37; README.md l.120/l.201 |
+| F-V1-03 | **VERIFICADO** - grep del valor viejo (extraido de git history solo en memoria): **0 hits**; AKIA[0-9A-Z]{16}: **0 hits**; redaccion in situ con placeholder + nota | evidencia r2 seccion F-V1-03 |
+| F-V1-04 | **VERIFICADO** - run estandar reporta los 4 .Api: Payments **91,66** / Ticketing **92,30** / Catalog **94,80** / Orders **93,22** (lineas), umbral >=70% verde, exit 0 | test-run1.log tabla cobertura |
+
+### Hallazgo NUEVO (adversarial de QA sobre el fix)
+
+| ID | Sev | Hallazgo | Evidencia | Fix sugerido |
+|----|-----|----------|-----------|--------------|
+| F-V1-R2-01 | **Mayor** | **El step-failed de la compensacion es tragado por el dedup del transporte cuando la compra ya tuvo un step-failed previo -> el fix de F-V1-01 es inalcanzable en esa variante y la compra queda no-terminal para siempre.** Raiz: SqsSagaTransport.SendAsync l.70 MessageDeduplicationId="{Type}:{PurchaseId}" - el evento es siempre type=step-failed, entonces el segundo paso fallado de la MISMA compra colisiona y SQS FIFO lo descarta en silencio (el publicador no falla: catalog.log registra el send). (a) issue-tickets persistent + release-seats persistent + PAN aprobado -> **PAYMENT_APPROVED eterno** (pur-e7f11b...1583, pago APPROVED, huerfano, T+60s y post-DELETE sin cambio). (b) authorize-payment persistent + release-seats persistent + PAN aprobado -> **SEATS_RESERVED eterno** (pur-6e309...5cb9, reason vacio, huerfano): literalmente el sintoma de F-V1-01, con 2 reglas. Refuta ademas la claim nueva del CHANGELOG ("toda compra termina en estado terminal con motivo - incluida la compensacion que falla"). Sobre duplicados: en vivo la FIFO traga los duplicados same-type (el guard CAS casi no se ejercita por esa via); el CAS existe y esta unit-testeado - esa misma dedup es la que causa este hallazgo | pur-e7f11bf57ce347d6becf52028ca31583; pur-6e30990972c848c1a05c90861e185cb9; orders.log cortado tras emitir release-seats mientras catalog.log registra el step-failed enviado; logs-run2\ | Dedup id unico por emision del step-failed (incluir evt.Step o guid; el propio comentario del transporte declara que el guard definitivo es el CAS del process manager, que ya existe). 1 linea + test e2e de doble fallo (paso + compensacion). Nota: por la ventana de dedup (~5 min), un duplicado real llegaria igual y el CAS lo ignora - el cambio es seguro por diseno propio |
+
+### Regresion (todo OK)
+
+- build: **0 Advertencias / 0 Errores**; suite: **135/135** (P8+T5+O61+C61), 0 omitidos, exit 0.
+- demo-resilience.ps1: **15/15 PASS exit 0** (backoff 508 ms; terminal+DLQ; sin drift 490==491-1; pausa 10,03-10,07 s -> fail-fast 14 ms -> recovery; invariante 489==491-2).
+- demo-idempotency.ps1: **exit 0** (replay 200 misma compra, delta 0, 422 idempotency-key-reused).
+- B2 persistent reserve-seats -> FAILED + **delta 0**; B3 transient count=3 authorize-payment -> FAILED + **delta 0** + DLQ payments; happy path -> TICKETS_ISSUED **delta -1**.
+
+### Veredicto por nodo (ronda 2)
+
+| Nodo | Veredicto QA | Base |
+|------|--------------|------|
+| N-2001 / N-2003 / N-2004 | **verified** (sin cambios; regresion verde) | suite + demos propios |
+| N-2002 | **implemented** (blocker F-V1-R2-01) | AC2 refutado en la variante de doble fallo via transporte; el camino single-failure (incluido el repro original de F-V1-01) ahora SI termina explicito |
+
+## Veredicto final V1 (ronda 2/2): **NO-SHIP**
+
+1. **F-V1-R2-01 (Mayor)**: misma clase que F-V1-01 (compra no-terminal eterna + asiento huerfano, constructible con la superficie documentada de /admin), ahora con 2 reglas y por el canal de dedup del transporte. Un hallazgo Mayor que refuta H-06 AC2 y la claim del CHANGELOG bloquea el gate - sin excepciones.
+2. F-V1-01/02/03/04: los 4 hallazgos de la ronda 1 estan cerrados con evidencia propia (el fix de F-V1-01 es correcto para su repro; falla la cobertura del escenario de doble fallo).
+3. El loop pactado era max 2 rondas y esta agotado: **escalar al orquestador** la decision (ronda extra acotada de ~1 h: 1 linea de dedup + test e2e + retest B1/R2/R3) o aceptar el riesgo documentado. QA recomienda la ronda extra: el fix es mecanico y todo lo demas quedo verificado.
+
+Riesgo residual declarado (no bloqueante, heredado): /admin sin auth localhost-only; techo de escritura del emulador; estado del emulador en memoria. Nuevo no-bloqueante: ambiente local quedo con las 2 compras huerfanas de R2/R3 como evidencia viva (reiniciar el emulador lo limpia).
+
+## Ronda 3 - retest final del fix quirurgico F-V1-R2-01 (2026-11-15, QA adversarial, scope cerrado autorizado por orquestador)
+
+Inputs: fix 03f3031 (dedup id del step-failed = `{type}:{purchase}:{step}` + guid fallback,
+SqsSagaTransport.cs l.74-91). 100% evidencia propia sobre HEAD 03f3031 (servicios y suite
+levantados por QA). Evidencia cruda: brain/evidence/2026-11-15-qa-v1-r3-retest.md
+(raw en %TEMP%\opencode\qa-v1r3\, logs .artifacts\logs\).
+
+### 1. Repros originales del QA - AMBOS CERRADOS (timing y disponibilidad explicitos)
+
+| Repro | Antes (R2 QA) | Ahora (evidencia propia) |
+|-------|---------------|--------------------------|
+| A: issue-tickets@5083 + release-seats@5080 persistent + PAN aprobado | PAYMENT_APPROVED eterno (pur-e7f11b...) | pur-e308b162...8965: **FAILED terminal en 4,7 s**; reason: "el paso 'issue-tickets' fallo tras 3 intentos (InjectedFailureException); ademas la compensacion 'release-seats' fallo tras agotar sus reintentos - asiento reservado huerfano (entrega en la DLQ del Catalogo)"; avail 480->479 (huerfana declarada); T+45 s y post-DELETE estable |
+| B: authorize-payment@5082 + release-seats@5080 persistent + PAN aprobado | SEATS_RESERVED eterno sin reason (pur-6e309...) | pur-422bc1d8...11f: **FAILED terminal en 4,1 s**; reason completo (authorize-payment + compensacion + huerfana); avail 479->478; T+45 s y post-DELETE estable |
+
+Traza propia del repro A (trace-purchase.ps1): la cadena ahora COMPLETA - step-failed #2
+de la compensacion LLEGA a Ordenes (catalog Error 02:09:18.169 -> orders "FAILED con
+asiento huerfano declarado" 02:09:18.182). Pre-fix orders.log cortaba tras publicar
+release-seats. La claim del CHANGELOG ("toda compra termina en estado terminal con
+motivo - incluida la compensacion que falla") ahora se cumple.
+
+### 2. Adversarial propio sobre el fix (todo OK)
+
+- **Mismo step-failed sin doble efecto**: authorize-payment persistent solo ->
+  FAILED 2,6 s, reason unico, delta avail 0, T+45 s reason IDENTICO y avail estable.
+  Reenvio identico sigue deduplicado: StepFailedDedupTests (reenvio identico -> 1
+  entrega) verde en filtro propio + guard CAS unit-testeado (R2).
+- **3 pasos persistent simultaneos** (reserve+authorize+issue-tickets): FAILED 2,1 s
+  (reason reserve-seats, primer paso), delta 0, estable. Sin estados eternos con N reglas.
+- **DELETE despues estable**: inexistente -> 404; reglas [] en los 3 servicios; happy
+  path posterior TICKETS_ISSUED 1 s delta -1 exacto.
+
+### 3. Regresion (todo OK)
+
+- build: **0 Advertencias / 0 Errores**. Suite CON env de emulador: **138/138, 0 omitidos**
+  (P8+T5+C62+O63); los 3 tests nuevos verdes tambien en filtro targeteado. Nota: sin
+  AWS_EMULATOR_* los tests de emulador se omiten (56) - skip explicito por diseno.
+- demo-resilience.ps1: **15/15 PASS exit 0** en emulador limpio (invariantes 499==500-1,
+  498==500-2 exactos; fail-fast 15 ms). Ver hallazgo F-V1-R3-01 para la 1ra corrida.
+- demo-idempotency.ps1: **exit 0** (replay 200 misma compra, delta 0, 422 key-reused).
+- Happy path completo: TICKETS_ISSUED en 1 s, 1 ticket, delta -1.
+
+### 4. Hallazgo nuevo (Menor, no bloqueante)
+
+| ID | Sev | Hallazgo | Evidencia | Sugerencia |
+|----|-----|----------|-----------|------------|
+| F-V1-R3-01 | Menor | demo-resilience AC2 ("mensaje en DLQ inspeccionable") flakea si la DLQ payments acumula >10 entries en la sesion del emulador: 1ra corrida de hoy 14/15 exit 1 (DLQ 10/10 por suite+repros del dia). PeekDlqAsync es 1 pagina de 10 (shortcut documentado) y el demo exige ver SU entrega en esa pagina. Verificado NO ser regresion del fix: emulador reiniciado -> 15/15 exit 0. El escenario portfolio (quickstart limpio) no esta afectado; el dev ya retiro asserts DLQ de los e2e por este mismo mecanismo | %TEMP%\opencode\qa-v1r3\demo-resilience{,-clean}.log; DLQ peek 10/10 | Para bump 0.2.0: filtrar peek por purchase_id en el demo, o limpiar/paginar DLQ al iniciar el demo. Documentado, no bloquea |
+
+### 5. Notas de gate (verificado, NO editado - cerrar en bump 0.2.0)
+
+- README l.201 "Tests: 135/135" stale (real 138/138).
+- CHANGELOG [Unreleased] no menciona el fix F-V1-R2-01 ni el 138 (dice 131->135).
+- Version sigue 0.1.0: por diseno, el bump 0.2.0 (Directory.Build.props + tag v0.2.0)
+  pende de este gate.
+
+## Veredicto final V1 (ronda 3/3): **SHIP**
+
+1. **F-V1-R2-01 (Mayor, el unico blocker): VERIFICADO CERRADO con evidencia propia** -
+   ambos repros del QA terminan FAILED en ~4-5 s con reason completo que declara ambos
+   fallos y la huerfana, disponibilidad explicita sin drift oculto, estables T+45 s y
+   post-DELETE. El adversarial propio (reenvio identico deduplicado, 3 reglas simultaneas,
+   DELETE estable) no encontro regresion ni via nueva. Toda compra termina en estado
+   terminal con motivo, incluida la compensacion que falla: H-06 AC2 ya no refutado.
+2. Regresion completa verde: build 0/0, 138/138 con 0 omitidos, demo-resilience 15/15,
+   demo-idempotency exit 0, happy path exacto. N-2002 pasa a **verified** (QA re-verifica
+   AC2 en la variante de doble fallo que lo refutaba).
+3. Hallazgos abiertos restantes: SOLO Menores de empaquetado/robustitud ya declarados
+   para el bump (ninguno refuta un AC en el escenario portfolio).
+
+### Pendiente para el bump 0.2.0 post-aprobacion (cierra dev, ~30 min, sin codigo de producto)
+
+1. README l.201: 135/135 -> 138/138.
+2. CHANGELOG [Unreleased]: entrada del fix F-V1-R2-01 (dedup del step-failed; suite 138)
+   + F-V1-R3-01 como conocido/menor si se desea.
+3. Bump version 0.2.0 en Directory.Build.props + tag v0.2.0.
+4. (Opcional, sugerido) F-V1-R3-01: peek por purchase_id en demo-resilience.
+
+Riesgo residual declarado (no bloqueante, heredado + 1 nuevo): /admin sin auth
+localhost-only; techo de escritura del emulador; estado del emulador en memoria (reiniciar
+lo limpia); F-V1-R3-01 (demo con deuda DLQ >10 en la misma sesion).

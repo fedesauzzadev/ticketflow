@@ -49,23 +49,24 @@
 </nav>
 
 <section id="mvp" class="on">
-  <h2>Entregable MVP — listo para review G2</h2>
+  <h2>Entregable V1 — listo para review G3</h2>
   <div class="card"><ul>
-    <li class="li-ok"><b>TicketFlow</b> — venta de entradas alta demanda: saga orquestada (reserva→pago→emisión + compensación observable), idempotencia HTTP y de comandos, cache MISS/HIT/invalidación, estado en DynamoDB/SQS/S3 del emulador AWS local (:9297). .NET 10, clean architecture, 13 csproj, 8 patrones mapeados.</li>
-    <li class="li-ok"><b>Levantarlo</b>: <span class="kbd">powershell -File scripts/run-local.ps1</span> → emulador + 4 servicios + seed. Demostraciones: <span class="kbd">scripts/demo-cache.ps1</span> · <span class="kbd">scripts/demo-idempotency.ps1</span> (ambas exit 0, verificadas por dev y QA).</li>
-    <li class="li-ok"><b>Flujo manual</b> (ejemplos copiables en README): GET /events → GET availability (MISS→HIT) → POST /purchases con Idempotency-Key (PAN ...0002 = rechazo y compensación) → GET /purchases/{id} hasta TICKETS_ISSUED.</li>
-    <li class="li-ok"><b>DoD comercial</b>: README ejecutable ✓ LICENSE MIT ✓ CHANGELOG 0.1.0 ✓ 98/98 tests ✓ cero secrets ✓ (QA verificó todo con corridas propias).</li>
-    <li>Pendiente del gate: <span class="chip st-inprogress">G2 — aprobación del Negocio</span> y <span class="chip st-planned">git init + commit (post-G2)</span>.</li>
+    <li class="li-ok"><b>V1 "producción creíble"</b> sobre el MVP shipped: trazas distribuidas por correlation-id (H-05), resiliencia con backoff+DLQ+circuit breaker+fallos inyectables (H-06), estrés concurrente sin oversell (H-07), pulido post-QA (H-10).</li>
+    <li class="li-ok"><b>Cómo probarlo</b>: <span class="kbd">scripts/trace-purchase.ps1</span> · <span class="kbd">scripts/demo-resilience.ps1</span> (15/15) · <span class="kbd">scripts/stress-test.ps1 -N 20 -X 5</span> (cero oversell) · inyección: <span class="kbd">POST /admin/failure</span>.</li>
+    <li class="li-ok"><b>Verificación</b>: 138/138 tests · breaker fail-fast 3-14 ms vs timeout 10 s · doble fallo persistente → terminal FAILED con huérfana declarada en DLQ (ronda 3 QA) · cobertura Core+.Api 81-95%.</li>
+    <li class="li-ok"><b>QA V1</b>: SHIP tras 3 rondas (NO-SHIP → fix compensación → NO-SHIP → fix dedup → SHIP). Hallazgo menor nuevo F-V1-R3-01 (flake demo con DLQ >10 entries) documentado.</li>
+    <li>Pendiente del gate: <span class="chip st-inprogress">G3 — aprobación + bump v0.2.0</span> (README/CHANGELOG/tag al aprobar).</li>
   </ul></div>
 </section>
 
 <section id="kanban">
-  <h2>Historias y estado</h2>
+  <h2>Historias y estado — MVP shipped + V1 en gate</h2>
   <div class="grid">
-    <div class="card"><h3>N-1001 · H-01 Catálogo + disponibilidad con cache</h3><span class="chip st-verified">verified</span><span class="chip">M</span><ul><li>AC1 MISS→HIT ✓</li><li>AC2 invalidación al comprar ✓</li><li>AC3 GET /events lista 16 eventos ✓</li><li>AC4 estado vive en emulador ✓</li></ul></div>
-    <div class="card"><h3>N-1002 · H-02 Saga de compra con compensación</h3><span class="chip st-verified">verified</span><span class="chip">L</span><ul><li>AC1 → TICKETS_ISSUED ~0,8 s ✓</li><li>AC2 disponibilidad decrece exacto ✓</li><li>AC3 PAN ...0002 → FAILED + liberación ✓</li><li>AC4 estados visibles por API ✓</li></ul></div>
-    <div class="card"><h3>N-1003 · H-03 Idempotencia (HTTP + comandos)</h3><span class="chip st-verified">verified</span><span class="chip">M</span><ul><li>AC1 misma key ⇒ misma compra ✓</li><li>AC2 duplicado interno → 1 efecto + log ✓</li><li>AC3 agotado → 422 explícito ✓</li><li>QA extra: 4 POST concurrentes misma key → 1 compra ✓</li></ul></div>
-    <div class="card"><h3>N-1004 · H-04 README + scripts de demo</h3><span class="chip st-verified">verified</span><span class="chip">M</span><ul><li>AC1 quickstart 1 comando (corrida fría) ✓</li><li>AC2 demo-idempotency exit 0 ✓</li><li>AC3 demo-cache exit 0 ✓</li><li>AC4 diagrama + ADR + mapa de patrones ✓</li></ul></div>
+    <div class="card"><h3>MVP v0.1.0 · H-01..H-04</h3><span class="chip st-ship">shipped</span><p>catálogo+cache · saga+compensación · idempotencia · README/demos — aprobado G2, tag v0.1.0</p></div>
+    <div class="card"><h3>N-2001 · H-05 Trazas distribuidas</h3><span class="chip st-verified">verified</span><span class="chip">M</span><ul><li>4/4 servicios mismo correlation-id ✓</li><li>compensación identificable ✓</li><li>compras paralelas sin mezcla ✓</li><li>0 PAN/CVV en logs ✓</li></ul></div>
+    <div class="card"><h3>N-2002 · H-06 Resiliencia</h3><span class="chip st-verified">verified</span><span class="chip">L</span><ul><li>backoff visible 510/1014 ms ✓</li><li>DLQ + FAILED + compensación ✓</li><li>breaker fail-fast 3-14 ms ✓</li><li>doble fallo → terminal + huérfana declarada ✓ (3 rondas)</li></ul></div>
+    <div class="card"><h3>N-2003 · H-07 Estrés concurrente</h3><span class="chip st-verified">verified</span><span class="chip">M</span><ul><li>N=20/X=5: 5 emitidos + 15 rechazos ✓</li><li>disponibilidad nunca negativa ✓</li><li>invariante 0+5==5 ✓</li><li>hostiles: exit 1/2 limpios ✓</li></ul></div>
+    <div class="card"><h3>N-2004 · H-10 Pulido post-QA</h3><span class="chip st-verified">verified</span><span class="chip">S</span><ul><li>415 content-type sin efectos ✓</li><li>GET /events sin it-* ✓</li><li>cobertura .Api 91-95% ✓</li></ul></div>
   </div>
 </section>
 
@@ -73,23 +74,23 @@
   <h2>Entregas de valor</h2>
   <div class="timeline">
     <div class="tl-item done"><b>V0 — MVP "drop de entradas demostrable"</b><p>H-01..H-04 completas y verificadas. QA final: SHIP. <span class="chip st-verified">entregado · en G2</span></p></div>
-    <div class="tl-item"><b>V1 — "producción creíble"</b><p>trazas distribuidas · reintentos/DLQ/circuit breaker · estrés concurrente (H-05..H-07). Absorbe deuda F-04..F-07. Necesita: G2 aprobado. <span class="chip st-planned">en plan</span></p></div>
-    <div class="tl-item"><b>V2 — "mantenible"</b><p>CI + IaC del entorno local + hold de asientos con TTL (H-08..H-09). Necesita: V1 con tests estables. <span class="chip st-planned">futuro</span></p></div>
+    <div class="tl-item done"><b>V1 — "producción creíble"</b><p>trazas · resiliencia (backoff/DLQ/breaker/inyección) · estrés sin oversell · pulido F-04..F-07. QA SHIP ronda 3. <span class="chip st-verified">entregado · en G3</span></p></div>
+    <div class="tl-item"><b>V2 — "mantenible"</b><p>CI + IaC del entorno local + hold de asientos con TTL (H-08..H-09). Necesita: G3 aprobado. <span class="chip st-planned">en plan</span></p></div>
   </div>
 </section>
 
 <section id="quality">
   <h2>Verificación y QA</h2>
   <div class="kpi">
-    <div class="card"><b>98/98</b><p>tests verdes (dev y QA independientes)</p></div>
-    <div class="card"><b>81–93%</b><p>cobertura 4 Core (umbral ≥70% cableado y mordiendo)</p></div>
-    <div class="card"><b>1,4/20,7/790 ms</b><p>p95 HIT/POST/saga vs 50/200/2000 objetivo</p></div>
-    <div class="card"><b>SHIP</b><p>veredicto QA ronda 2 (0 críticos, 0 mayores abiertos)</p></div>
+    <div class="card"><b>138/138</b><p>tests verdes (Core+.Api, umbral ≥70% en run estándar)</p></div>
+    <div class="card"><b>3-14 ms</b><p>fail-fast breaker vs timeout 10 s (docker pause ×2)</p></div>
+    <div class="card"><b>0</b><p>oversell en estrés N>X (4 escenarios + hostiles)</p></div>
+    <div class="card"><b>SHIP</b><p>QA V1 ronda 3 · MVP SHIP ronda 2</p></div>
   </div>
   <div class="card"><ul>
-    <li>Adversarial: 26 payloads hostiles → 0×5xx, 0 internals · 4 POST simultáneos misma key → 1 compra · 3 carreras sobre stock → 0 oversell · docker pause 7 min → recovery total.</li>
-    <li>Gates de división 4/4: idempotencia ✓ cache ✓ 100% AWS-local (proceso se niega a arrancar contra AWS real) ✓ cero secrets ✓.</li>
-    <li>Deuda menor documentada (V1): F-04 content-type laxo · F-05 ventana claim→decremento no atómica (ms, sin oversell) · F-06 residuos it-* en GET /events · F-07 .Api sin cobertura de suite.</li>
+    <li>Rondas V1: NO-SHIP (compensación no toleraba fallo persistente) → fix + NO-SHIP (dedup tragaba 2º step-failed) → fix quirúrgico → SHIP. Ambos fixes verificados por QA con repros propios.</li>
+    <li>Gates de división 4/4 siguen verde · quickstart frío re-validado por QA · secrets: 0 (redacción de cred muerta incluida).</li>
+    <li>Riesgo residual: F-V1-R3-01 (flake demo si DLQ >10 entries en misma sesión — no afecta quickstart limpio), admin sin auth (localhost-only), techo de escritura del emulador.</li>
   </ul></div>
 </section>
 

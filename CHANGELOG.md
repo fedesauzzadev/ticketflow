@@ -3,10 +3,10 @@
 Formato [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/),
 versionado [SemVer](https://semver.org/lang/es/).
 
-## [Unreleased]
+## [0.2.0] - 2026-11-15
 
-Entrega V1 (historias H-05..H-07 + H-10, slices S05..S08). Se marcará `0.2.0` al
-aprobar el gate de QA (retest post ronda de fixes).
+Entrega V1 (historias H-05..H-07 + H-10, slices S05..S08). QA: SHIP (3 rondas,
+2026-11-15) — aprobado por el Negocio en G3.
 
 ### Agregado
 
@@ -26,6 +26,14 @@ aprobar el gate de QA (retest post ronda de fixes).
 - **Pulido de portfolio** (H-10): frontera Content-Type estricta (415 sin efectos,
   charset tolerado), catálogo limpio de eventos de test, tests in-proc de los 4 `.Api`.
 - Suite de tests: 131/131 al cierre de V1; 135/135 tras la ronda de fixes.
+
+### Corregido (ronda 2 post-QA V1, 2026-11-15)
+
+- **F-V1-R2-01**: el dedup id de los mensajes `step-failed` incluía solo el
+  purchase_id — SQS FIFO deduplicaba el segundo fallo de la misma compra y el
+  process manager nunca lo veía (con dos reglas persistent la compra quedaba
+  eterna). Ahora el dedup id incluye el paso fallado (enmienda 2 de D-0012;
+  tests de transporte + 2 e2e de doble fallo). Suite: 138/138.
 
 ### Corregido (ronda post-QA V1, 2026-11-15)
 

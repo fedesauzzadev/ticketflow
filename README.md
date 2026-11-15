@@ -198,7 +198,7 @@ Get-Content .artifacts\logs\orders.log -Wait
 
 ## Verificación
 
-- **Tests:** `dotnet test TicketFlow.sln` → **135/135** (unit + integración contra el emulador real; requiere el emulador arriba y `AWS_EMULATOR_*` en el env — `run-local.ps1` muestra cómo se extraen; el run reporta cobertura de los 4 `Core` y los 4 `.Api`, umbral ≥70%).
+- **Tests:** `dotnet test TicketFlow.sln` → **138/138** (unit + integración contra el emulador real; requiere el emulador arriba y `AWS_EMULATOR_*` en el env — `run-local.ps1` muestra cómo se extraen; el run reporta cobertura de los 4 `Core` y los 4 `.Api`, umbral ≥70%).
 - **Evidencias por slice** (comando + salida archivada): [S01 catálogo/cache](brain/evidence/2026-11-13-S01-n1001-verification.md) · [S02 saga+compensación](brain/evidence/2026-11-13-S02-n1002-verification.md) · [S03 idempotencia](brain/evidence/2026-11-14-S03-n1003-verification.md) · [S04 quickstart/demos/mediciones (este slice)](brain/evidence/2026-11-14-S04-n1004-verification.md) · [verificación del emulador](brain/evidence/2026-11-13-emulator-verification.md).
 
 ### Performance medida (NFR-5, local, 50 iteraciones tras warmup)

@@ -1,4 +1,4 @@
-﻿# Brain Index
+# Brain Index
 
 > Entry map. Always read this first. Keep under 150 lines — if it grows, summarize or split.
 
@@ -6,7 +6,7 @@
 TicketFlow: portfolio backend de venta de entradas para eventos de alta demanda — microservicios .NET 10 orquestados (saga), idempotencia observable, cache hit/miss observable, todo sobre servicios AWS del emulador oficial local (:9297, HTTPS+SigV4, CA propia). Dominio = PROPUESTA aprobada en G2. Plan técnico Fase 2: factory/plan.md.
 
 ## Active slice
-**v1** (H-05..H-07 + H-10 de factory/backlog.md): N-2001 trazas distribuidas · N-2002 resiliencia (backoff + DLQ + circuit breaker, absorbe F-05) · N-2003 estrés concurrente sin oversell · N-2004 pulido deuda QA (F-04/F-06/F-07). **G1 interno aprobado 2026-11-14** — plan V1 en factory/plan.md §V1 (sprints S05..S08, ADRs D-0011..D-0014). **S05/N-2001 verificado 2026-11-14** (trazas D-0011). **S06/N-2002 verificado 2026-11-14** (resiliencia D-0012/D-0013: backoff 0,5/1 s, DLQ aplicativo + step-failed, breaker propio por downstream, /admin/failure + /admin/dlq, decremento atómico single-item; demo-resilience.ps1 TODO PASS; 125/125 tests). **S07/N-2003 verificado 2026-11-14** (estrés D-0014: stress-test.ps1 PS 5.1 + HttpClient compartido DefaultConnectionLimit=256, N/X por parámetro, alineación -X por pre-compra; 3 corridas PASS N=20/X=5, N=8/X=7, N=4/X=11 con cero oversell y 100% terminal; sin fixes de servicio; learnings L-014). **S08/N-2004 verificado 2026-11-14** (pulido H-10: guard Content-Type 415 sin efectos F-04, filtro it- en GET /events F-06, Payments.Api 91,7%/Ticketing.Api 92,3% in-proc F-07; 131/131 tests, build 0/0). V0/mvp: COMPLETO — N-1001..N-1004 shipped (commit 97d7a7d, tag v0.1.0), QA F4 SHIP en 2 rondas. **Ronda fix post-QA V1 2026-11-15** (F-V1-01..F-V1-04 resueltos por dev: compensación agotada → FAILED con huérfana declarada — enmienda D-0012; CHANGELOG/README; secret redactado; cobertura .Api en el run estándar; 135/135 + demo-resilience 15/15; evidencia 2026-11-15-fix-f-v1-01.md). **Ronda 2 QA: hallazgo F-V1-R2-01 (Mayor) → fix dev 2026-11-15** (dedup id del step-failed en SqsSagaTransport incluía solo {type}:{purchase} → el fallo de la compensación colisionaba con el step-failed previo de la misma compra y SQS FIFO lo tragaba en silencio; con 2 reglas persistent la compra quedaba eterna. Fix: el paso fallado entra al dedup id, enmienda 2 de D-0012, learnings L-015; ambos repros del QA cerrados EN VIVO + 138/138 + demo-resilience TODO PASS; evidencia fix-2026-11-15-f-v1-r2-01.md). Pendiente: retest QA acotado (R2/R3 + suite + smoke) → gate 0.2.0 + tag v0.2.0.
+**v2** (H-08..H-09 de factory/roadmap.md: CI + IaC del entorno local + hold de asientos con TTL): PO especifica ACs primero. **v1 COMPLETA Y APROBADA G3 (2026-11-15)** — N-2001..N-2004 shipped, tag v0.2.0, QA V1 SHIP ronda 3 (factory/qa-report-v1.md, F-V1-R2-01 cerrado). V0/mvp: N-1001..N-1004 shipped (tag v0.1.0), QA F4 SHIP 2 rondas.
 
 ## Nodes
 | ID | Title | Type | Size | Status | Key links |
@@ -15,10 +15,10 @@ TicketFlow: portfolio backend de venta de entradas para eventos de alta demanda 
 | N-1002 | Saga de compra de entradas multi-servicio con compensación | feature | L | shipped | depends_on N-1001 · → D-0004, D-0006 · evidencia 2026-11-13-S02 |
 | N-1003 | Idempotencia observable de la compra (replay y duplicados) | feature | M | shipped | depends_on N-1002 · → D-0009 (claim condicional + hash canónico + 422s + log de dedup) · evidencia 2026-11-14-S03 |
 | N-1004 | Documentación de portfolio y scripts de demo | feature | M | shipped | depends_on N-1001..N-1003 · → D-0002, D-0008 · evidencia 2026-11-14-S04 |
-| N-2001 | Trazas distribuidas de la saga con correlation-id compartido | feature | M | verified | H-05 · depends_on N-1002 · slice v1 · → D-0011 · evidencia 2026-11-14-S05 |
-| N-2002 | Resiliencia observable bajo fallos inyectables (backoff, DLQ, circuit breaker) | feature | L | verified | H-06 · depends_on N-1002 · slice v1 · absorbe F-05 (AC5) · → D-0012 (+enmiendas F-V1-01 y F-V1-R2-01), D-0013 · evidencia 2026-11-14-S06 + 2026-11-15-fix-f-v1-01 + fix-2026-11-15-f-v1-r2-01 (fix post-QA V1 r2) |
-| N-2003 | Estrés concurrente sin oversell con resultado terminal garantizado | feature | M | verified | H-07 · depends_on N-1002 · slice v1 · → D-0014 · evidencia 2026-11-14-S07 |
-| N-2004 | Pulido post-QA: frontera Content-Type, catálogo limpio, cobertura .Api | feature | S | verified | H-10 · depends_on N-1003 · slice v1 · absorbe F-04/F-06/F-07 · evidencia 2026-11-14-S08 |
+| N-2001 | Trazas distribuidas de la saga con correlation-id compartido | feature | M | shipped | H-05 · depends_on N-1002 · slice v1 · → D-0011 · evidencia 2026-11-14-S05 |
+| N-2002 | Resiliencia observable bajo fallos inyectables (backoff, DLQ, circuit breaker) | feature | L | shipped | H-06 · depends_on N-1002 · slice v1 · absorbe F-05 (AC5) · → D-0012 (+enmiendas F-V1-01 y F-V1-R2-01), D-0013 · evidencia 2026-11-14-S06 + 2026-11-15-fix-f-v1-01 + fix-2026-11-15-f-v1-r2-01 + 2026-11-15-qa-v1-r3-retest (QA R3 SHIP: AC2 re-verificado en doble fallo) |
+| N-2003 | Estrés concurrente sin oversell con resultado terminal garantizado | feature | M | shipped | H-07 · depends_on N-1002 · slice v1 · → D-0014 · evidencia 2026-11-14-S07 |
+| N-2004 | Pulido post-QA: frontera Content-Type, catálogo limpio, cobertura .Api | feature | S | shipped | H-10 · depends_on N-1003 · slice v1 · absorbe F-04/F-06/F-07 · evidencia 2026-11-14-S08 |
 
 ## Decisions
 | ID | Título | Reversibility |
@@ -37,6 +37,8 @@ TicketFlow: portfolio backend de venta de entradas para eventos de alta demanda 
 | D-0012 | resiliencia V1: backoff en worker (3 intentos 0,5/1 s) + DLQ aplicativo + step-failed + breaker propio por downstream + inyección por endpoint admin | medium |
 | D-0013 | reserva atómica F-05: decremento idempotente single-item (ADD + NOT contains) | medium |
 | D-0014 | estrés V1: stress-test.ps1 PS 5.1 + Add-Type/HttpClient compartido, invariantes AC1..AC4 | easy |
+| D-0015 | ronda extra dev loop V1 (F-V1-R2-01, 1 línea) autorizada por anti-bloqueo — disclosure completo en G3 | easy |
+| D-0016 | G3 aprobado: V1 entregada + v0.2.0 + V2 aprobada | easy |
 
 ## Evidence
 - fix-2026-11-15-f-v1-r2-01.md — RONDA FIX QA V1 R2 (F-V1-R2-01, dev): dedup id del step-failed en SqsSagaTransport ({type}:{purchase} colisionaba → SQS FIFO tragaba el fallo de la compensación en silencio) ahora incluye el paso fallado (enmienda 2 de D-0012, learnings L-015, guard definitivo = CAS de D-0006). 3 tests nuevos (1 transporte: pasos distintos ambos entregados + idéntico deduplicado; 2 e2e doble fallo con workers reales) con control rojo (los 3 fallan con el síntoma exacto del QA sin el fix); 138/138 suite completa + build 0/0; AMBOS repros del QA cerrados en vivo con servicios reales (issue-tickets+release-seats y authorize-payment+release-seats persistent PAN aprobado → FAILED ~4 s con reason que declara ambos fallos + huérfana + DLQ, disponibilidad 485→484→482 exacta); demo-resilience TODO PASS regresión. Nota: retirado el assert de contenido DLQ de los e2e (peek página 10 sobre DLQ compartida que solo acumula = flake; determinismo en WorkerBackoffDlqTests).
