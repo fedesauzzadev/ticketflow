@@ -244,3 +244,128 @@ la suite encima).
 | S06 es L (el más grueso) | Anti-bloqueo 3 intentos → escalado a TL; descope interno (p.ej. pulir UX del admin) sin tocar AC |
 | Stress contra evento compartido del emulador | Script acepta -EventId; alineación por pre-compra documentada; corrida limpia en S08 para evidencia |
 | Logs a archivos cambian UX de la demo | Tail en vivo documentado (`Get-Content -Wait`); demos existentes no dependen de la consola de servicios |
+
+---
+
+# V2 — "mantenible": CI + IaC + hold con TTL (Fase 2-ter, planificado 2026-11-15 · post-G3)
+
+**Input:** backlog V2 (H-08 = N-3001 CI + N-3002 IaC · H-09 = N-3003 hold TTL), QA V1 ronda 3
+(F-V1-R3-01 absorbido en H-08 AC5), L-001..L-015, D-0001..D-0016, **probe TTL del emulador**
+(brain/evidence/2026-11-15-ttl-probe-verification.md — DelaySeconds por mensaje en FIFO
+RECHAZADO por el emulador con el error exacto de SQS real; Scan filtrado con atributo ausente
+verificado). NFRs del MVP (§3) siguen vigentes sin cambio; comandos de §6 **sin cambios**
+(config.yaml intacto). Repo sin remote: el workflow GH Actions es artefacto (D-0020).
+
+## V2.1 Decisiones clave (ADR nuevos)
+
+| Tema | Decisión (1 línea) | ADR |
+|---|---|---|
+| Mecanismo del TTL | **Sweeper aplicativo persistente** en Órdenes (intervalo fijo 5 s): Scan `st=SEATS_RESERVED AND expires_at<now` sobre `purchases` (verificado por probe) → CAS a `EXPIRED` + outbox `release-seats`; sin doble liberación por construcción (`ReleaseAsync` idempotente por `decrement_pids`, D-0013); `DelaySeconds` en FIFO imposible (probe P2) e infiel por cola (P1) | D-0017 |
+| Carrera pago-vs-vencimiento | El endpoint de pago CLAIMa `payment_initiated_at` con CAS (`expires_at > now`); el sweeper exige `attribute_not_exists(payment_initiated_at)` → gana quien CASé primero (AC3/AC4 deterministas); tier de contingencia reclama claims zombis (> 2×TTL+30 s) para preservar "toda compra terminal con motivo" | D-0017 |
+| Trigger del hold | Body `POST /purchases` gana `"hold": true` opcional (default false) + `GET /purchases/{id}` expone `expires_at` en holds; **`POST /purchases/{id}/payment`** (202 al claim / 409 `hold-expired` tardío / 200 replay); enum gana `EXPIRED` terminal con reason | D-0018 |
+| IaC | Manifiesto **`infra/aws-local.json`** (6 tablas + 4 colas FIFO + 4 DLQs + bucket, legible como datos) aplicado por **`tools/TicketFlow.Provision`** (.NET, reusa `Shared.Infrastructure`; `--apply` idempotente / `--verify` con diff) + `scripts/provision.ps1`; **el ensure defensivo de arranque SE CONSERVA**; guard test clava manifiesto ↔ constantes de código | D-0019 |
+| CI local | **`scripts/ci.ps1`** (PS 5.1): preflight → build `-warnaserror` → `dotnet test` con env (umbral ≥70% Core activo, L-012) → infra-verify → workflow-lint; `-Demos` corre run-local + las demos con cierre ordenado; primera etapa que falla = culpable del exit ≠ 0; **workflow GH Actions invoca el MISMO ci.ps1** (cero deriva) | D-0020 |
+| Determinismo DLQ sucia (F-V1-R3-01) | `PeekDlqAsync` enumera la DLQ completa sin borrar (paginación por `VisibilityTimeout=2` + dedup por `MessageId`, tope documentado); demo assertiona SU compra en la lista — no flakea con >10 entradas previas | D-0020 |
+
+## V2.2 Mapeo AC → mecanismo (resumen ejecutivo)
+
+| AC | Mecanismo (ADR de detalle) |
+|---|---|
+| H-08 AC1..AC4 | `ci.ps1` etapas/gates/`-Demos` (D-0020 §1) — AC2 se evidencia rompiendo una etapa y revirtiendo |
+| H-08 AC5 | Paginación/filtrado de DLQ (D-0020 §3) + assert restaurado en `demo-resilience.ps1` |
+| H-08 AC6..AC9 | Manifiesto + provision apply/verify + flujo from-scratch (D-0019) |
+| H-09 AC1 | `hold:true` + `expires_at` en la transición a SEATS_RESERVED + `HOLD_TTL_SECONDS` (default 90, fail-fast 5..3600) (D-0018 §1, D-0017 §6) |
+| H-09 AC2 | Sweeper 5 s → `EXPIRED` + `release-seats` (D-0017 §2) |
+| H-09 AC3 | Saga V1 intacta post-claim; happy path sin hold NO cambia (D-0017 §1, D-0018 §3) |
+| H-09 AC4 | 409 `hold-expired` + guards CAS del process manager + `ReleaseAsync` idempotente (D-0018 §3-5, D-0017 §3) |
+| H-09 AC5 | Disponibilidad restaurada ⇒ re-reserva normal (guard `available >= n`, D-0013) |
+| H-09 AC6 | Replay = camino existente (`ResolveExistingKeyAsync`); doble liberación imposible por `decrement_pids` (D-0017 §3) |
+| H-09 AC7 | Estado 100% en DynamoDB del emulador; sweeper stateless (probe P4 + D-0017 §2) |
+| H-09 AC8 | `scripts/demo-ttl.ps1` con valores y exit code (D-0018 §6) |
+
+## V2.3 Sprints S09..S11 (cada uno cierra nodo(s) completo(s) con evidencia)
+
+> Mismo DoD que S01..S08: AC antes de código → build 0/0 + suite verde → verificación
+> funcional con evidencia en `brain/evidence/` → refutación por verifier. Desde S10 el DoD
+> corre además por `scripts/ci.ps1` (un comando = todo el gate).
+
+### S09 — IaC declarativo idempotente (H-08 parte IaC / N-3002) — D-0019 — S
+- **Nuevos:** `infra/aws-local.json` (manifiesto: 6 tablas pk-HASH, 4 colas FIFO + 4 DLQs
+  CDB=true, bucket `ticketflow-tickets`) · `tools/TicketFlow.Provision` (console, referencia
+  `Shared.Infrastructure`; modos `--apply`/`--verify`, reusa `DynamoDbTables.EnsureAsync` +
+  ensure de cola + patrón idempotente de bucket) · `tools/TicketFlow.Provision.Tests` (guard
+  test manifiesto ↔ `SagaQueues.All` + `DlqQueueOf` + 6 `TableName` + bucket — referencia los
+  4 Core) · `scripts/emulator-env.ps1` (§1-2 de run-local extraídas: contenedor up-or-start +
+  creds+CA + health, setea env) · `scripts/provision.ps1` (wrapper: emulator-env → dotnet run).
+- **Tocar:** `scripts/run-local.ps1` (dot-source `emulator-env.ps1` en vez de §1-2 inline —
+  refactor mecánico) · `TicketFlow.sln` (2 proyectos nuevos) · README (sección "recursos AWS:
+  dónde se declaran" + comandos from-scratch).
+- **AC heredadas:** H-08 AC6 (manifiesto legible versionado), AC7 (from-scratch + verificación
+  1:1), AC8 (2 re-ejecuciones exit 0, lista idéntica), AC9 (flujo completo sobre lo
+  aprovisionado).
+
+### S10 — CI local + workflow artefacto + determinismo DLQ (H-08 parte CI / N-3001) — D-0020 — M
+- **Nuevos:** `scripts/ci.ps1` (etapas preflight/build/tests/infra-verify/workflow-lint +
+  `-Demos` — arranca el entorno SOLO si los puertos 5080..5083 no responden y cierra lo que él
+  arrancó; resumen por etapa; exit ≠ 0 con culpable; PS 5.1 + BOM, L-009/L-013 aplicados a
+  nativos) · `scripts/validate-workflow.ps1` (estructura esperada del YAML por invariantes) ·
+  `.github/workflows/ci.yml` (ubuntu + pwsh + setup-dotnet 10 → invoca `ci.ps1`; comentarios
+  documentan cómo el runner sirve el emulador con docker).
+- **Tocar:** `SqsSagaTransport.PeekDlqAsync` (paginación completa sin borrar, D-0020 §3) +
+  tests de transporte (DLQ con >10 y con 0 entradas) · `scripts/demo-resilience.ps1` (assert
+  de SU compra en la DLQ enumerada — restaura el assert retirado en el fix F-V1-R2-01) ·
+  `ResilienceAdminEndpoints` (cap/nota en `GET /admin/dlq` con lista completa) · README
+  (sección CI: un comando local, qué correría el runner, sin remote).
+- **AC heredadas:** H-08 AC1 (orden build→suite→cobertura, resumen, exit 0 solo si todo),
+  AC2 (etapa rota ⇒ exit ≠ 0 con culpable — evidencia romper/revertir), AC3 (workflow válido +
+  validación local + documentación de runner), AC4 (`-Demos` con cierre ordenado), AC5
+  (DLQ payments >10 entradas ⇒ demo exit 0, F-V1-R3-01).
+
+### S11 — Hold de asientos con TTL (H-09 / N-3003) — D-0017 + D-0018 — L
+- **Orders.Core:** `Purchase` (enum + `EXPIRED`, campo `Hold`, `ExpiresAt`, `PaymentInitiatedAt`)
+  · `PurchaseRequests` (campo `hold` opcional validado NFR-1 + hash de body intacto) ·
+  `SagaProcessManager` (rama hold en `seats-reserved`: escribir `expires_at` y NO emitir
+  `authorize-payment`; guards para eventos tardíos sobre `EXPIRED`) ·
+  `DynamoDbPurchaseRepository` (transición con `expires_at`, claim CAS de
+  `payment_initiated_at`, Scan de expirables con el filtro verificado P4a) · port
+  `IPurchaseRepository` extendido.
+- **Orders.Api:** `HoldExpirySweeper` (BackgroundService, 5 s, D-0017 §2/§5) ·
+  `POST /purchases/{id}/payment` (contrato D-0018 §3) · `HOLD_TTL_SECONDS` validado fail-fast ·
+  `expires_at` en la respuesta de GET/POST.
+- **Nuevos scripts/docs:** `scripts/demo-ttl.ps1` (AC8: retención→vencimiento→liberación con
+  valores→pago tardío 409→re-compra→TICKETS_ISSUED, exit 0) · README (hold, TTL, endpoints,
+  env). `ci.ps1 -Demos` incorpora `demo-ttl.ps1`.
+- **Tests:** unit (transiciones a EXPIRED, claim CAS gana/pierde, validador `hold`, guards de
+  eventos tardíos, sweeper determinista sin reloj real) · integración (Scan de expirables
+  contra emulador, doble liberación expiración+compensación = 1 incremento, replay post-EXPIRED
+  sin efectos) · in-proc Orders.Api (endpoint /payment: 202/409/404/400/200) · e2e demo.
+- **AC heredadas:** H-09 AC1..AC8. **No-regresión explícita:** H-07 invariantes (holds
+  opt-in ⇒ el estrés nunca ve EXPIRED), F-V1-01/F-V1-R2-01 (terminalidad con motivo — tier de
+  contingencia D-0017 §5), H-03 (replay) y H-02 (happy path) re-verificados por suite + demos.
+
+**Dependencias y orden:** S09 → S10 → S11. Se RESPETA el orden sugerido por el PO
+(N-3002 → N-3001 → N-3003): S10 consume `emulator-env.ps1` y `provision -Verify` de S09
+(etapa infra-verify), y S11 (el slice L) se desarrolla YA con el gate de un comando de S10 —
+el DoD del slice más riesgoso corre sobre el CI real. N-3003 no depende técnicamente de
+N-3001/3002 (paralelizable como notó el PO); se deja secuencial para que el sweeper y los
+endpoints nuevos nazcan bajo el gate, no antes de él.
+
+## V2.4 Estrategia QA delta
+
+| Nivel | Qué agrega V2 |
+|---|---|
+| Unit | Guard test manifiesto↔código (S09); paginación de DLQ con visibilidad simulada (S10); transiciones/claims/guards del hold + sweeper sin reloj real (S11) |
+| Integración | Provision from-scratch + idempotencia contra emulador recreado (S09); DLQ e2e con >10 entradas (S10); Scan de expirables, doble liberación única, replay post-expiración (S11) |
+| Funcional/e2e | `ci.ps1` verde + roto/revertido con etapa culpable (S10); `ci.ps1 -Demos` con cierre ordenado; `demo-ttl.ps1` PASS con valores (S11); stress H-07 re-corrido post-V2 como no-regresión |
+| NFRs vigentes | Validación `hold` + endpoint /payment como fronteras nuevas (NFR-1); umbral ≥70% Core con Orders.Core extendido (NFR-6); `expires_at`/reason sin sensibles (NFR-4 heredado) |
+
+## V2.5 Riesgos V2
+
+| Riesgo | Mitigación |
+|---|---|
+| Emulador sucio hace flakiar `infra-verify` o demos | `--verify` solo falla por FALTANTES (extras = warning, D-0019 §2); demos filtradas por compra propia (D-0020 §3); evidencia 1:1 se toma from-scratch |
+| Paginación de DLQ: el emulador podría no rotar páginas con visibilidad corta | Tope de pasadas + tests de transporte contra DLQ real con >10 entradas en S10 (si no rota, fallback documentado: claim por `purchaseId` via atributos de mensaje — el AC pide "paginación o equivalente") |
+| Carrera sweeper vs pago en el último segundo | Resolución por CAS (`payment_initiated_at`), no por timing (D-0017 §4); tests unit deterministas de ambos ganadores |
+| S11 toca el process manager (corazón de la saga) | Rama hold es aditiva (sin hold = código actual byte-equivalente); suite 138 + demos V1 como no-regresión en el mismo gate; anti-bloqueo 3 intentos → TL |
+| `ci.ps1 -warnaserror` rompe por warnings de analizadores nuevos | El build ya es 0/0 (DoD vigente) — el flag solo vuelve error lo que ya se exige |
+| Workflow jamás corre (sin remote) — riesgo de artefacto muerto | `validate-workflow.ps1` en el CI local (estructura) + invocación al MISMO ci.ps1 (lo que correría el runner es lo que corre el dueño hoy) |

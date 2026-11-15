@@ -18,10 +18,10 @@
 
 ## V2 — "mantenible": CI + IaC + evolución de dominio (H-08..H-09)
 
-- **Valor de portfolio concreto:** el repo se sostiene solo: cada push buildea y testea, el entorno local se declara como código, y el dominio gana una regla de negocio real (expiración de reservas) que muestra evolución limpia sobre la arquitectura existente.
-- **Contenido:** pipeline CI (build+tests) · IaC/compose versionado del entorno · hold de asientos con TTL y liberación automática.
-- **Dependencias:** V1 (tests estables para gatear el CI); decisión del TL sobre runner de CI.
-- **Riesgos:** el TTL de reservas agrega estados intermedios a la saga ⇒ requiere revisión del process manager (diseño del TL, no del PO).
+- **Valor de portfolio concreto:** el repo se sostiene solo: un solo comando verifica build+tests+cobertura (y opcionalmente los demos), un pipeline de GitHub Actions versionado queda listo por si el repo gana remote, el entorno local se declara como código (aprovisionamiento from scratch e idempotente), y el dominio gana una regla de negocio real (expiración de reservas con liberación automática) que muestra evolución limpia sobre la arquitectura existente.
+- **Contenido (especificado 2026-11-15, ver ACs en backlog):** script de CI local PS 5.1 (build+suite+gate de cobertura, flag de demos) + workflow GH Actions como artefacto (repo sin remote — decisión PO) · manifiesto declarativo + comando idempotente de tablas/colas/bucket ejecutable from scratch (H-08) · hold de asientos con TTL configurable: liberación automática, pago a tiempo prospera, pago tardío rechazado limpio, idempotencia/compensación sin doble liberación, expiración que sobrevive reinicios de servicios, demo imprimible (H-09). F-V1-R3-01 (flake de demo con DLQ >10) absorbido en H-08 AC5.
+- **Dependencias:** V1 completa (suite 138/138 estable = gate confiable); decisión del TL sobre mecanismo de TTL (SqsDelaySeconds vs timer/sweeper aplicativo — ADR del TL); decisión del TL sobre cómo el workflow sirve el emulador en un runner real; para el IaC, lógica ensure idempotente existente (EnsureAsync) como base.
+- **Riesgos:** el TTL agrega estados intermedios y un terminal nuevo al process manager ⇒ revisar garantías V1 (toda compra termina terminal con motivo; expiración y compensación no duplican liberaciones — AC6); la expiración no puede depender de memoria de proceso (el estado vive en el emulador — AC7); determinismo del gate de CI en sesión local compartida (F-V1-R3-01, mitigado en H-08 AC5).
 
 ## Hitos de decisión
 

@@ -1,0 +1,12 @@
+﻿[P1] ACEPTADO: CreateQueue FIFO con atributo DelaySeconds=3 (SQS real lo rechaza para FIFO)
+[P2] RECHAZADO [AmazonSQSException] Amazon.SQS.AmazonSQSException: Value 4 for parameter DelaySeconds is invalid. Reason: The request include parameter that is not valid for this queue type.  ---> Amazon.Runtime.Internal.HttpErrorResponseException: Exception of type 'Amazon.Runtime.Internal.Http
+[P3] HONRADO en estandar (antes=0, despues=1): el emulador SI implementa delay por mensaje
+[P4a] OK exacto: Scan filtro st=SEATS_RESERVED AND expires_at<now con atributo AUSENTE en otros items -> [S#1] (esperado [S#1])
+[P4b] OK exacto: variante attribute_exists + expires_at<now -> [S#1]
+
+==== RESUMEN PROBE TTL V2 ====
+P1       ACEPTADO: CreateQueue FIFO con atributo DelaySeconds=3 (SQS real lo rechaza para FIFO)
+P2       RECHAZADO [AmazonSQSException] Amazon.SQS.AmazonSQSException: Value 4 for parameter DelaySeconds is invalid. Reason: The request include parameter that is not valid for this queue type.  ---> Amazon.Runtime.Internal.HttpErrorResponseException: Exception of type 'Amazon.Runtime.Internal.Http
+P3       HONRADO en estandar (antes=0, despues=1): el emulador SI implementa delay por mensaje
+P4a      OK exacto: Scan filtro st=SEATS_RESERVED AND expires_at<now con atributo AUSENTE en otros items -> [S#1] (esperado [S#1])
+P4b      OK exacto: variante attribute_exists + expires_at<now -> [S#1]
