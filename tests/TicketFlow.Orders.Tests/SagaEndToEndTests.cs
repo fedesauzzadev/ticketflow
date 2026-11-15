@@ -159,6 +159,21 @@ public sealed class SagaEndToEndTests
     private static SagaEnvelope Envelope<T>(string type, string purchaseId, T payload) =>
         new(type, purchaseId, JsonSerializer.SerializeToElement(payload, SagaJson.Options));
 
+    /// <summary>
+    /// Worker REAL del Catálogo (mismo cuerpo que CatalogSagaWorker de producción: handler +
+    /// publicación a OrdersEvents) con <see cref="FailureInjector"/> — para el repro F-V1-01.
+    /// </summary>
+    private sealed class InjectedCatalogWorker(
+        IAmazonSQS sqs, SqsSagaTransport transport, CatalogSagaHandler handler, FailureInjector injector)
+        : SqsSagaWorker(sqs, transport, SagaQueues.CatalogCommands, NullLogger.Instance, injector)
+    {
+        protected override async Task HandleAsync(SagaEnvelope envelope, CancellationToken ct)
+        {
+            foreach (var @event in await handler.HandleAsync(envelope, ct))
+                await Transport.SendAsync(SagaQueues.OrdersEvents, @event, ct);
+        }
+    }
+
     [SkippableFact]
     public async Task Approved_purchase_reaches_TICKETS_ISSUED_with_ticket_qr_and_exact_decrement()
     {
@@ -236,5 +251,70 @@ public sealed class SagaEndToEndTests
         Assert.NotNull(payment);
         Assert.False(payment.Approved);
         Assert.Null(await h.Tickets.GetIssuedTicketIdsAsync(purchase.PurchaseId, ct));
+    }
+
+    // F-V1-01 (enmienda D-0012, repro del QA): persistent en release-seats — la compensación
+    // misma agota 3+3 intentos. La compra DEBE terminar FAILED con la reserva huérfana
+    // declarada (nada en SEATS_RESERVED para siempre) y la entrega inspeccionable en la DLQ.
+    [SkippableFact]
+    public async Task Persistent_failure_on_release_seats_ends_terminal_failed_with_explicit_orphan()
+    {
+        EmulatorTestSupport.SkipIfNotConfigured();
+        var ct = CancellationToken.None;
+        var (h, eventId, initial) = await SeededEventAsync(6, 90.00m, ct);
+        await h.Payments.InitializeAsync(ct);
+
+        var injector = new FailureInjector();
+        injector.Inject(SagaTypes.ReleaseSeats, FailureInjector.Persistent, 2);
+        var catalogWorker = new InjectedCatalogWorker(h.Sqs, h.Transport, h.CatalogHandler, injector);
+        await catalogWorker.StartAsync(ct);
+        try
+        {
+            // PAN 0002 → payment-declined → compensación release-seats → 3 fallos → step-failed.
+            var purchase = Purchase.Create(PurchaseIds.New(), eventId, 2, "5105105105100002",
+                "e2e-key-fv1", DateTimeOffset.UtcNow);
+            await h.Purchases.CreateAsync(purchase, ct);
+            await h.Outbox.EnqueueAsync(SagaQueues.CatalogCommands, SagaTypes.ReserveSeats,
+                purchase.PurchaseId, new ReserveSeatsCommand(eventId, 2), ct);
+
+            // Bombea TODO menos catalog-commands (esa cola es del worker real): hasta terminal.
+            Handler payments = async (e, token) => await h.PaymentsHandler.HandleAsync(e, token) is { } ev
+                ? [ev] : [];
+            Handler orders = async (e, token) =>
+            {
+                await h.ProcessManager.HandleAsync(e, token);
+                return [];
+            };
+            var deadline = DateTimeOffset.UtcNow.AddSeconds(45);
+            Purchase? final = null;
+            while (final?.Status is not (PurchaseStatus.TICKETS_ISSUED or PurchaseStatus.FAILED)
+                   && DateTimeOffset.UtcNow < deadline)
+            {
+                await h.Outbox.PublishPendingAsync(h.Transport, NullLogger<DynamoDbOutbox>.Instance, ct);
+                await DrainAsync(h, SagaQueues.PaymentsCommands, payments, ct);
+                await DrainAsync(h, SagaQueues.OrdersEvents, orders, ct);
+                final = await h.Purchases.GetAsync(purchase.PurchaseId, ct);
+                await Task.Delay(100, ct);
+            }
+
+            // AC2: terminal explícito con motivo — el original Y el fallo de la compensación.
+            Assert.NotNull(final);
+            Assert.Equal(PurchaseStatus.FAILED, final.Status);
+            Assert.Contains("0002", final.FailureReason);
+            Assert.Contains("release-seats", final.FailureReason);
+            Assert.Contains("huérfano", final.FailureReason);
+
+            // AC3 sin drift OCULTO: la disponibilidad refleja exactamente la reserva huérfana.
+            var stored = await h.CatalogRepo.GetByIdAsync(eventId, ct);
+            Assert.Equal(initial - 2, stored!.Available);
+
+            // La entrega fallida quedó inspeccionable en la DLQ del Catálogo (peek-only).
+            var dead = await h.Transport.PeekDlqAsync(SagaQueues.CatalogCommands, ct);
+            Assert.Contains(dead, d => d.Type == SagaTypes.ReleaseSeats && d.PurchaseId == purchase.PurchaseId);
+        }
+        finally
+        {
+            await catalogWorker.StopAsync(CancellationToken.None);
+        }
     }
 }

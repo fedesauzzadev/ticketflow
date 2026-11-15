@@ -50,3 +50,23 @@ librería vs patrón del breaker, y forma de la inyección de fallos.
   visible en timestamps (AC1 imposible).
 - Polly v8: ver decisión 3.
 - Inyección por env vars: requiere restart del servicio, menos demoable que curl en vivo.
+
+## Enmienda (2026-11-15, fix post-QA F-V1-01)
+
+El camino 2 dejaba un hueco refutado por QA adversarial (F-V1-01): si la compensación
+`release-seats` MISMA agotaba sus 3 intentos, el segundo `step-failed` llegaba a Órdenes
+con el fallo ya anotado (`TryNoteFailureAsync` = false por `attribute_not_exists(
+pending_failure_reason)`) y el evento se ignoraba → compra `SEATS_RESERVED` eterna sin
+`failure_reason`, asiento huérfano y drift permanente de disponibilidad.
+
+**Fix (SagaProcessManager, caso step-failed):** `step = release-seats` → transición
+directa `SEATS_RESERVED|PAYMENT_APPROVED → FAILED` (CAS) con reason que declara la reserva
+huérfana — nunca silencio. NO se re-emite la compensación (ya agotó 3 intentos por
+entrega; re-emitir solo alarga la agonía de un fallo persistent). El asiento queda
+explícitamente tomado: la disponibilidad lo refleja y el motivo lo nombra; la entrega
+espera en la DLQ del Catálogo (`ticketflow-catalog-commands-dlq.fifo`, peek-only) para una
+liberación por reintento futuro — un `seats-released` tardío (redrive manual) libera el
+asiento en el Catálogo sin mutar la compra ya terminal. Duplicados del `step-failed` de
+compensación caen en el guard CAS (compra ya FAILED) → ignorados, idempotente.
+
+Redrive automático de la DLQ sigue fuera de alcance (el AC no lo exige; D-0012 original).

@@ -250,5 +250,67 @@ public sealed class SagaProcessManagerTests
         Assert.Single(outbox.Enqueued, e => e.Type == SagaTypes.ReleaseSeats); // una sola compensación
     }
 
+    // --- F-V1-01 (enmienda D-0012): la compensación misma agota sus reintentos ----------
+
+    [Fact]
+    public async Task Step_failed_on_release_seats_goes_terminal_FAILED_declaring_orphan_seat()
+    {
+        var id = PurchaseIds.New();
+        var (manager, purchases, outbox) = Started(id, seats: 2);
+        await manager.HandleAsync(Env(SagaTypes.SeatsReserved, id, new SeatsReservedEvent("evt-test", 100m)), CT);
+        await manager.HandleAsync(
+            Env(SagaTypes.PaymentDeclined, id, new PaymentDeclinedEvent("tarjeta rechazada (PAN terminada en 0002)")), CT);
+        Assert.Single(outbox.Enqueued, e => e.Type == SagaTypes.ReleaseSeats);
+
+        // Repro QA F-V1-01: la compensación también agota 3+3 intentos → 2do step-failed.
+        await manager.HandleAsync(
+            Env(SagaTypes.StepFailed, id, new StepFailedEvent("release-seats", "el paso 'release-seats' falló tras 3 intentos (InjectedFailureException)")), CT);
+
+        var failed = purchases.Store[id];
+        Assert.Equal(PurchaseStatus.FAILED, failed.Status); // terminal: JAMÁS SEATS_RESERVED eterno (AC2)
+        Assert.Contains("0002", failed.FailureReason); // el motivo original viaja
+        Assert.Contains("release-seats", failed.FailureReason); // y también el fallo de la compensación
+        Assert.Contains("huérfano", failed.FailureReason); // la reserva huérfana queda declarada (AC3)
+        Assert.Single(outbox.Enqueued, e => e.Type == SagaTypes.ReleaseSeats); // no re-emite infinito
+    }
+
+    [Fact]
+    public async Task Step_failed_on_release_seats_after_issue_tickets_also_goes_terminal()
+    {
+        var id = PurchaseIds.New();
+        var (manager, purchases, outbox) = Started(id, seats: 1);
+        await manager.HandleAsync(Env(SagaTypes.SeatsReserved, id, new SeatsReservedEvent("evt-test", 70m)), CT);
+        await manager.HandleAsync(Env(SagaTypes.PaymentApproved, id, new PaymentApprovedEvent(70m)), CT);
+        await manager.HandleAsync(
+            Env(SagaTypes.StepFailed, id, new StepFailedEvent("issue-tickets", "el paso 'issue-tickets' falló tras 3 intentos")), CT);
+
+        await manager.HandleAsync(
+            Env(SagaTypes.StepFailed, id, new StepFailedEvent("release-seats", "el paso 'release-seats' falló tras 3 intentos")), CT);
+
+        var failed = purchases.Store[id];
+        Assert.Equal(PurchaseStatus.FAILED, failed.Status); // terminal también desde PAYMENT_APPROVED
+        Assert.Contains("issue-tickets", failed.FailureReason);
+        Assert.Contains("huérfano", failed.FailureReason);
+        Assert.Single(outbox.Enqueued, e => e.Type == SagaTypes.ReleaseSeats);
+    }
+
+    [Fact]
+    public async Task Duplicate_step_failed_on_release_seats_after_terminal_is_ignored()
+    {
+        var id = PurchaseIds.New();
+        var (manager, purchases, outbox) = Started(id);
+        await manager.HandleAsync(Env(SagaTypes.SeatsReserved, id, new SeatsReservedEvent("evt-test", 90m)), CT);
+        await manager.HandleAsync(
+            Env(SagaTypes.StepFailed, id, new StepFailedEvent("authorize-payment", "falló")), CT);
+        var compensationFailed = Env(SagaTypes.StepFailed, id,
+            new StepFailedEvent("release-seats", "el paso 'release-seats' falló tras 3 intentos"));
+
+        await manager.HandleAsync(compensationFailed, CT); // → FAILED terminal
+        await manager.HandleAsync(compensationFailed, CT); // duplicado (redelivery)
+
+        Assert.Equal(PurchaseStatus.FAILED, purchases.Store[id].Status); // sin mutar
+        Assert.Single(outbox.Enqueued, e => e.Type == SagaTypes.ReleaseSeats); // sin re-emisión
+    }
+
     private static CancellationToken CT => CancellationToken.None;
 }
