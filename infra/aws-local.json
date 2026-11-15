@@ -1,0 +1,54 @@
+{
+  "//": "Manifiesto IaC del emulador AWS local de TicketFlow (D-0019, N-3002/H-08 AC6..AC9).",
+  "//aplicar": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts\\provision.ps1",
+  "//verificar": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts\\provision.ps1 -Verify",
+  "tables": [
+    {
+      "name": "purchases",
+      "keySchema": [ { "attributeName": "pk", "keyType": "HASH" } ],
+      "attributeDefinitions": [ { "attributeName": "pk", "attributeType": "S" } ],
+      "billingMode": "PAY_PER_REQUEST"
+    },
+    {
+      "name": "orders_outbox",
+      "keySchema": [ { "attributeName": "pk", "keyType": "HASH" } ],
+      "attributeDefinitions": [ { "attributeName": "pk", "attributeType": "S" } ],
+      "billingMode": "PAY_PER_REQUEST"
+    },
+    {
+      "name": "orders_idempotency",
+      "keySchema": [ { "attributeName": "pk", "keyType": "HASH" } ],
+      "attributeDefinitions": [ { "attributeName": "pk", "attributeType": "S" } ],
+      "billingMode": "PAY_PER_REQUEST"
+    },
+    {
+      "name": "catalog_events",
+      "keySchema": [ { "attributeName": "pk", "keyType": "HASH" } ],
+      "attributeDefinitions": [ { "attributeName": "pk", "attributeType": "S" } ],
+      "billingMode": "PAY_PER_REQUEST"
+    },
+    {
+      "name": "payments",
+      "keySchema": [ { "attributeName": "pk", "keyType": "HASH" } ],
+      "attributeDefinitions": [ { "attributeName": "pk", "attributeType": "S" } ],
+      "billingMode": "PAY_PER_REQUEST"
+    },
+    {
+      "name": "tickets",
+      "keySchema": [ { "attributeName": "pk", "keyType": "HASH" } ],
+      "attributeDefinitions": [ { "attributeName": "pk", "attributeType": "S" } ],
+      "billingMode": "PAY_PER_REQUEST"
+    }
+  ],
+  "queues": [
+    { "name": "ticketflow-catalog-commands.fifo",      "fifo": true, "contentBasedDeduplication": true },
+    { "name": "ticketflow-payments-commands.fifo",     "fifo": true, "contentBasedDeduplication": true },
+    { "name": "ticketflow-ticketing-commands.fifo",    "fifo": true, "contentBasedDeduplication": true },
+    { "name": "ticketflow-orders-events.fifo",         "fifo": true, "contentBasedDeduplication": true },
+    { "name": "ticketflow-catalog-commands-dlq.fifo",  "fifo": true, "contentBasedDeduplication": true },
+    { "name": "ticketflow-payments-commands-dlq.fifo", "fifo": true, "contentBasedDeduplication": true },
+    { "name": "ticketflow-ticketing-commands-dlq.fifo","fifo": true, "contentBasedDeduplication": true },
+    { "name": "ticketflow-orders-events-dlq.fifo",     "fifo": true, "contentBasedDeduplication": true }
+  ],
+  "buckets": [ { "name": "ticketflow-tickets" } ]
+}

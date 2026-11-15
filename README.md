@@ -60,6 +60,20 @@ Eso: (1) levanta el contenedor `aws-emulator` si está caído (lo buildea si no 
 
 Cuando veas `==> Todo listo:` el flujo completo está operativo. `Ctrl+C` detiene los 4 servicios (el emulador queda; su estado persiste mientras no reinicies el contenedor).
 
+## Recursos AWS del emulador: dónde se declaran (IaC)
+
+Los recursos que los servicios consumen — **6 tablas DynamoDB** (key schema `pk` HASH), **8 colas SQS FIFO** (4 de la saga + sus 4 DLQs, con `ContentBasedDeduplication`) y el **bucket S3 `ticketflow-tickets`** de los QR — están declarados como datos en un manifiesto versionado: [`infra/aws-local.json`](infra/aws-local.json). Un guard test (`tools/TicketFlow.Provision.Tests`) clava el manifiesto contra las constantes de código: tocar uno sin el otro rompe la suite.
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\provision.ps1          # --apply: crea lo que falta (idempotente)
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\provision.ps1 -Verify  # lista los recursos reales y los compara 1:1 con el manifiesto
+```
+
+- **From scratch** (emulador recién recreado, cero recursos): `docker rm -f aws-emulator` → `scripts\provision.ps1` (recrea el contenedor y crea los 15 recursos) → `-Verify` coincide 1:1. Aplicar 2 veces más deja el mismo conjunto (exit 0, sin duplicados).
+- `-Verify` sale **exit 1** con el diff si falta algún recurso o difiere en su forma (key schema, FIFO/CDB, billing); los recursos **extra** (p. ej. colas `it-*` de corridas de tests) son solo WARNING.
+- Los servicios **conservan su ensure defensivo de arranque** (decisión D-0019): `run-local.ps1` funciona sin provision previo — el manifiesto es la fuente de verdad de la lista, el ensure es resiliencia de runtime.
+- La tool (`tools/TicketFlow.Provision`) reusa la plomería verificada de `Shared.Infrastructure` (CA pineada, SigV4, ensure tolerante a carreras).
+
 ## Probar el flujo a mano
 
 Copia y pega en otra ventana de PowerShell. Cada bloque es independiente salvo los ids que generan los anteriores.
@@ -198,7 +212,7 @@ Get-Content .artifacts\logs\orders.log -Wait
 
 ## Verificación
 
-- **Tests:** `dotnet test TicketFlow.sln` → **138/138** (unit + integración contra el emulador real; requiere el emulador arriba y `AWS_EMULATOR_*` en el env — `run-local.ps1` muestra cómo se extraen; el run reporta cobertura de los 4 `Core` y los 4 `.Api`, umbral ≥70%).
+- **Tests:** `dotnet test TicketFlow.sln` → **155/155** (unit + integración contra el emulador real; requiere el emulador arriba y `AWS_EMULATOR_*` en el env — `run-local.ps1` muestra cómo se extraen; el run reporta cobertura de los 4 `Core` y los 4 `.Api`, umbral ≥70% — la tool Provision con umbral propio 86%).
 - **Evidencias por slice** (comando + salida archivada): [S01 catálogo/cache](brain/evidence/2026-11-13-S01-n1001-verification.md) · [S02 saga+compensación](brain/evidence/2026-11-13-S02-n1002-verification.md) · [S03 idempotencia](brain/evidence/2026-11-14-S03-n1003-verification.md) · [S04 quickstart/demos/mediciones (este slice)](brain/evidence/2026-11-14-S04-n1004-verification.md) · [verificación del emulador](brain/evidence/2026-11-13-emulator-verification.md).
 
 ### Performance medida (NFR-5, local, 50 iteraciones tras warmup)

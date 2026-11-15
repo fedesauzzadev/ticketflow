@@ -3,6 +3,17 @@
 Formato [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/),
 versionado [SemVer](https://semver.org/lang/es/).
 
+## [Unreleased]
+
+### Agregado
+
+- **IaC declarativa del emulador** (H-08 AC6..AC9): manifiesto `infra/aws-local.json`
+  (6 tablas DynamoDB + 4 colas FIFO + 4 DLQs + bucket S3) aplicado/verificado por
+  `tools/TicketFlow.Provision` vía `scripts\provision.ps1` (idempotente — aplicar N
+  veces deja el mismo conjunto; `-Verify` lista lo real y difunde contra el manifiesto,
+  exit 1 si falta o difiere). Guard test clava manifiesto ↔ constantes de código; los
+  servicios conservan su ensure defensivo de arranque (D-0019). Suite: 155/155.
+
 ## [0.2.0] - 2026-11-15
 
 Entrega V1 (historias H-05..H-07 + H-10, slices S05..S08). QA: SHIP (3 rondas,
