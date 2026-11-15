@@ -6,7 +6,7 @@
 TicketFlow: portfolio backend de venta de entradas para eventos de alta demanda — microservicios .NET 10 orquestados (saga), idempotencia observable, cache hit/miss observable, todo sobre servicios AWS del emulador oficial local (:9297, HTTPS+SigV4, CA propia). Dominio = PROPUESTA aprobada en G2. Plan técnico Fase 2: factory/plan.md.
 
 ## Active slice
-**v2 EN DESARROLLO — S10 CI VERIFICADO (2026-11-15)** — N-3001 verified (evidencia 2026-11-15-S10-n3001-verification.md: ci.ps1 gate completo + workflow artefacto + F-V1-R3-01 cerrado, 157/157). Próximo: S11 hold TTL (N-3003). Plan: factory/plan.md §V2 + ADRs D-0017..D-0020. **v2 ESPECIFICADA (2026-11-15, PO)** — N-3001 (CI) / N-3002 (IaC) / N-3003 (hold TTL) planned, ACs en factory/backlog.md §V2. **v1 COMPLETA Y APROBADA G3 (2026-11-15)** — N-2001..N-2004 shipped, tag v0.2.0, QA V1 SHIP ronda 3 (factory/qa-report-v1.md, F-V1-R2-01 cerrado). V0/mvp: N-1001..N-1004 shipped (tag v0.1.0), QA F4 SHIP 2 rondas.
+**v2 EN DESARROLLO — S11 HOLD TTL VERIFICADO (2026-11-15)** — N-3003 verified (evidencia 2026-11-15-S11-n3003-verification.md: sweeper D-0017 + contrato D-0018, suite 186/186, demo-ttl x2 exit 0, AC7 reinicio PASS, stress+demos+ci.ps1 -Demos exit 0). S09 (N-3002) y S10 (N-3001) verificados. V2 pendiente de gate QA. Plan: factory/plan.md §V2 + ADRs D-0017..D-0020. **v1 COMPLETA Y APROBADA G3 (2026-11-15)** — N-2001..N-2004 shipped, tag v0.2.0, QA V1 SHIP ronda 3 (factory/qa-report-v1.md, F-V1-R2-01 cerrado). V0/mvp: N-1001..N-1004 shipped (tag v0.1.0), QA F4 SHIP 2 rondas.
 
 ## Nodes
 | ID | Title | Type | Size | Status | Key links |
@@ -21,7 +21,7 @@ TicketFlow: portfolio backend de venta de entradas para eventos de alta demanda 
 | N-2004 | Pulido post-QA: frontera Content-Type, catálogo limpio, cobertura .Api | feature | S | shipped | H-10 · depends_on N-1003 · slice v1 · absorbe F-04/F-06/F-07 · evidencia 2026-11-14-S08 |
 | N-3001 | CI local (build+tests+cobertura en un comando) + workflow GH Actions artefacto | feature | M | verified | H-08 (AC1..AC5) · depends_on N-2004 · slice v2 · absorbe F-V1-R3-01 · → D-0020 · evidencia 2026-11-15-S10 |
 | N-3002 | IaC: aprovisionamiento declarativo e idempotente de tablas, colas y bucket | feature | S | verified | H-08 (AC6..AC9) · depends_on N-1002 · slice v2 · → D-0019 · evidencia 2026-11-15-S09 |
-| N-3003 | Hold de asientos con TTL: expiración automática de reservas no pagadas | feature | L | planned | H-09 · depends_on N-2002 · slice v2 |
+| N-3003 | Hold de asientos con TTL: expiración automática de reservas no pagadas | feature | L | verified | H-09 (AC1..AC8) · depends_on N-2002 · slice v2 · → D-0017 (sweeper persistente 5 s + claim CAS + tier zombi), D-0018 (hold:true + POST /purchases/{id}/payment + EXPIRED) · evidencia 2026-11-15-S11 |
 
 ## Decisions
 | ID | Título | Reversibility |

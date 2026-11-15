@@ -156,10 +156,11 @@ $p2                                                       # FAILED + reason "pag
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts\demo-cache.ps1          # MISS -> HIT -> compra -> MISS con valores
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts\demo-idempotency.ps1    # misma key => misma compra; 422s
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts\demo-resilience.ps1     # AC1..AC5: backoff, DLQ, breaker, sin drift
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\demo-ttl.ps1            # hold: retencion -> vencimiento -> liberacion -> 409 -> re-compra
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts\stress-test.ps1 -N 20  # N compradores simultaneos, invariantes anti-oversell
 ```
 
-Los 4 scripts terminan con exit 0 si la demo pasa (distinto de 0 si falla cualquier check). `demo-idempotency` demuestra también el caso **agotado** cuando existe un evento con ≤ 7 asientos: para verlo, levanta el entorno con un evento chico antes de correr el script:
+Los 5 scripts terminan con exit 0 si la demo pasa (distinto de 0 si falla cualquier check). `demo-idempotency` demuestra también el caso **agotado** cuando existe un evento con ≤ 7 asientos: para verlo, levanta el entorno con un evento chico antes de correr el script:
 
 ```powershell
 $env:SEED_EVENTS = 'evt-mj-tribute-night|Michael Jackson Tribute Night|2027-03-12T21:00:00Z|120.50|500;evt-demo-soldout|Demo Sold Out|2027-06-01T20:00:00Z|10.00|1'
@@ -193,6 +194,44 @@ por entrega con backoff 0,5/1 s; agotados → `<cola>-dlq.fifo` + compra `FAILED
 terminal `FAILED` con el **asiento huérfano declarado en el motivo** y la entrega esperando
 en la DLQ del Catálogo). El "downstream colgado" del breaker es `docker pause
 aws-emulator` (3 fallos consecutivos → fail-fast 5 s → probe de recuperación).
+
+## Hold de asientos con TTL (H-09): el carrito abandonado
+
+Una compra puede **retener asientos sin pagar de inmediato** y completar el pago después.
+Sin `"hold": true` el comportamiento es exactamente el de V1 (regresión prohibida).
+
+```powershell
+# 1) Crear la compra en hold: reserva 1 asiento y NO emite el pago automáticamente.
+#    GET /purchases/{id} muestra SEATS_RESERVED con "expires_at" (ISO-8601) y la
+#    disponibilidad queda decrementada hasta que el hold venga o se pague.
+$key = 'mi-key-' + [Guid]::NewGuid().ToString('N')
+$body = '{"event_id":"evt-mj-tribute-night","seats":1,"hold":true,"card":{"pan":"4111111111111111","holder":"Michael Fan","expiry":"12/29","cvv":"123"}}'
+curl -X POST http://localhost:5081/purchases -H "Idempotency-Key: $key" -H "Content-Type: application/json" -d $body
+
+# 2) Completar el pago ANTES del TTL: 202 y la saga sigue hasta TICKETS_ISSUED como en V1.
+curl -X POST http://localhost:5081/purchases/<purchase_id>/payment      # 202 {purchase_id, status, expires_at}
+
+# 3) Si el TTL vence sin pago: un sweeper de Ordenes (cada 5 s) expira la compra a
+#    EXPIRED (terminal, con motivo "reserva expirada sin pago (TTL Ns)") y libera el
+#    asiento: la disponibilidad vuelve al valor previo y el asiento es re-comprable.
+#    El pago tardio recibe 409 hold-expired; el replay del POST original con la misma
+#    key devuelve la MISMA compra EXPIRED sin efectos.
+```
+
+- **`POST /purchases/{id}/payment`** (sin body): `202` claim a tiempo (la saga sigue sola)
+  · `200` replay del endpoint · `409 hold-expired` tardío · `409 invalid-state` (no-hold o
+  estado avanzado) · `404` no existe · `400` id inválido.
+- **Carrera pago-vs-vencimiento**: resuelta por CAS en DynamoDB (D-0017 §4) — el endpoint
+  reclama `payment_initiated_at` con `expires_at > now`; el sweeper exige que nadie haya
+  reclamado. Gana quien haga CAS primero, sin relojes distribuidos.
+- **`HOLD_TTL_SECONDS`** (env de Órdenes, default **90 s**, válido 5..3600, fail-fast al
+  arrancar): configura el TTL. La expiración vive en DynamoDB del emulador (sweeper
+  stateless): **sobrevive el reinicio de los microservicios**.
+- **Sin doble liberación**: expiración y compensación pueden emitir `release-seats`, pero la
+  liberación idempotente del Catálogo (`decrement_pids`, D-0013/D-0017 §3) incrementa la
+  disponibilidad UNA sola vez.
+- Demo completa con valores (`demo-ttl.ps1`, arriba) y trazabilidad: cada expiración loguea
+  el paso `hold-expired` con su `purchase_id` (visible en `trace-purchase.ps1`).
 
 ## Estrés concurrente sin oversell (H-07)
 

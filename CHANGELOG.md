@@ -7,6 +7,17 @@ versionado [SemVer](https://semver.org/lang/es/).
 
 ### Agregado
 
+- **Hold de asientos con TTL** (H-09): `POST /purchases` acepta `"hold": true` opcional —
+  la compra reserva sin emitir el pago, expone `expires_at` y espera el endpoint nuevo
+  `POST /purchases/{id}/payment` (202 a tiempo / 200 replay / 409 `hold-expired` tardío /
+  409 `invalid-state` / 404 / 400). Si el TTL (`HOLD_TTL_SECONDS`, default 90 s, rango
+  5..3600 fail-fast) vence sin pago, un sweeper aplicativo en Órdenes (cada 5 s, scan
+  filtrado verificado por probe) transiciona a `EXPIRED` (terminal con motivo, D-0017/D-0018)
+  y libera el asiento; la carrera pago-vs-vencimiento se resuelve por CAS
+  (`payment_initiated_at`), la liberación nunca se duplica (idempotencia `decrement_pids`)
+  y la expiración sobrevive reinicios de microservicios (estado 100 % en DynamoDB).
+  Demo `scripts\demo-ttl.ps1` (retención → vencimiento → liberación → 409 → replay →
+  re-compra), incorporada a `ci.ps1 -Demos`. Suite: 186/186.
 - **CI local en un comando + workflow artefacto** (H-08 AC1..AC5): `scripts\ci.ps1` corre
   todo el gate (preflight → build 0 warnings → suite completa contra el emulador con umbral
   de cobertura ≥70% de los Core → infra-verify → workflow-lint; `-Demos` agrega las 3 demos

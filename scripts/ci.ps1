@@ -9,9 +9,10 @@
 #     4. infra-verify    provision.ps1 -Verify (D-0019): manifiesto infra/aws-local.json ⊆ recursos reales.
 #     5. workflow-lint   validate-workflow.ps1: estructura esperada de .github/workflows/ci.yml.
 #   -Demos (AC4): etapa extra — arranca los 4 servicios SOLO si :5080..5083 no responden,
-#     corre demo-cache / demo-idempotency / demo-resilience (TODAS deben dar exit 0; cada demo
-#     limpia sus propias inyecciones) y CIERRA ordenado solo lo que él arrancó (los servicios
-#     que ya estaban corriendo quedan intactos).
+#     corre demo-cache / demo-idempotency / demo-resilience / demo-ttl (TODAS deben dar exit 0;
+#     cada demo limpia sus propias inyecciones; demo-ttl espera el TTL del servicio, default 90 s)
+#     y CIERRA ordenado solo lo que él arrancó (los servicios que ya estaban corriendo quedan
+#     intactos).
 #   El workflow GH Actions invoca ESTE MISMO script: cero deriva local/CI (D-0020).
 # PS 5.1 (compatible pwsh para el artefacto). Uso:
 #   powershell -NoProfile -ExecutionPolicy Bypass -File scripts\ci.ps1 [-Demos]
@@ -171,7 +172,7 @@ if ($Demos) {
             Write-Host '    los 4 servicios ya estaban arriba: se usan tal cual (no se cierran al terminar)'
         }
         try {
-            foreach ($demo in 'demo-cache', 'demo-idempotency', 'demo-resilience') {
+            foreach ($demo in 'demo-cache', 'demo-idempotency', 'demo-resilience', 'demo-ttl') {
                 Write-Host "    -> $demo"
                 & $ps -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot "$demo.ps1")
                 if ($LASTEXITCODE -ne 0) {

@@ -12,11 +12,15 @@ namespace TicketFlow.Orders.Core.Application;
 /// payment-declined→release-seats (compensación) · seats-released→FAILED · seats-unavailable→FAILED ·
 /// step-failed (D-0012, reintentos agotados)→FAILED directo (PENDING) o compensación (con reserva) ·
 /// step-failed de release-seats (F-V1-01)→FAILED con la reserva huérfana declarada.
+/// Holds (D-0017/D-0018): seats-reserved de hold→SEATS_RESERVED en espera (sin authorize-payment,
+/// con expires_at); los eventos tardíos sobre EXPIRED pierden el CAS y se ignoran (§5) — el
+/// agregado terminal no muta y el asiento ya volvió al pool por la expiración.
 /// </summary>
 public sealed class SagaProcessManager(
     IPurchaseRepository purchases,
     IOutbox outbox,
-    ILogger<SagaProcessManager> logger)
+    ILogger<SagaProcessManager> logger,
+    int holdTtlSeconds = HoldTtl.DefaultSeconds)
 {
     public async Task HandleAsync(SagaEnvelope envelope, CancellationToken ct)
     {
@@ -25,14 +29,35 @@ public sealed class SagaProcessManager(
             case SagaTypes.SeatsReserved:
             {
                 var evt = envelope.PayloadAs<SeatsReservedEvent>();
-                if (!await purchases.TryTransitionAsync(envelope.PurchaseId,
-                        PurchaseStatus.PENDING, PurchaseStatus.SEATS_RESERVED, ct: ct))
+                // D-0017 §1/D-0018 §1: en holds la transición a SEATS_RESERVED escribe expires_at
+                // (+ monto del pago diferido) en el MISMO CAS — crash-safe: nunca existe un hold
+                // sin expiración. Sin hold el camino es exactamente el de V1.
+                var before = await purchases.GetAsync(envelope.PurchaseId, ct);
+                var won = before?.Hold == true
+                    ? await purchases.TryHoldReserveAsync(envelope.PurchaseId,
+                        DateTimeOffset.UtcNow.ToUnixTimeSeconds() + holdTtlSeconds,
+                        evt.UnitPrice * before.Seats, ct)
+                    : await purchases.TryTransitionAsync(envelope.PurchaseId,
+                        PurchaseStatus.PENDING, PurchaseStatus.SEATS_RESERVED, ct: ct);
+                if (!won)
                 {
                     Ignored(envelope, $"compra no está PENDING (duplicado de {SagaTypes.SeatsReserved}?)");
                     return;
                 }
                 var purchase = await purchases.GetAsync(envelope.PurchaseId, ct);
                 if (purchase is null) return;
+                if (purchase.Hold)
+                {
+                    // D-0018 §1: el hold NO emite authorize-payment — espera el claim del
+                    // POST /purchases/{id}/payment dentro del TTL.
+                    logger.LogInformation(
+                        "compra {PurchaseId}: paso 'seats-reserved' → SEATS_RESERVED en hold " +
+                        "(expira {ExpiresAt:O}) — pago diferido a POST /purchases/{PurchaseId}/payment",
+                        envelope.PurchaseId,
+                        purchase.ExpiresAt is { } exp ? DateTimeOffset.FromUnixTimeSeconds(exp) : DateTimeOffset.MaxValue,
+                        envelope.PurchaseId);
+                    break;
+                }
                 // El monto nace del precio que dueña el Catálogo (viaja en el evento) — sin lectura cross-tabla.
                 await outbox.EnqueueAsync(SagaQueues.PaymentsCommands, SagaTypes.AuthorizePayment,
                     envelope.PurchaseId,

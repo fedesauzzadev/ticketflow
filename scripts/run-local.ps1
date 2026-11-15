@@ -75,6 +75,8 @@ try {
     Write-Host '    GET  http://localhost:5081/purchases/{id}               (estados de la saga: PENDING..TICKETS_ISSUED/FAILED)'
     Write-Host '    GET  http://localhost:5082/payments/{purchase_id}       (evidencia del paso de pago)'
     Write-Host '    GET  http://localhost:5083/tickets/{id}                 (entrada + qr_s3_key)'
+    Write-Host '    POST http://localhost:5081/purchases {"hold":true,...}  (reserva con hold: espera POST .../payment; TTL HOLD_TTL_SECONDS, default 90 s)'
+    Write-Host '    POST http://localhost:5081/purchases/{id}/payment       (completa el pago de un hold: 202 a tiempo / 409 expirado)'
     Write-Host '    PAN aprobada: cualquier terminación EXCEPTO 0002 · PAN rechazada: termina 0002 (compensación)'
     Write-Host '==> Traza de una compra (H-05): scripts\trace-purchase.ps1 -PurchaseId <purchase_id>  ·  tail en vivo: Get-Content .artifacts\logs\orders.log -Wait'
     Write-Host '==> Ctrl+C detiene los 4 servicios.'

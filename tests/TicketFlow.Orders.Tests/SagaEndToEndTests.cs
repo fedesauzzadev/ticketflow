@@ -11,6 +11,7 @@ using TicketFlow.Catalog.Core.Infrastructure;
 using TicketFlow.Orders.Core.Application;
 using TicketFlow.Orders.Core.Domain;
 using TicketFlow.Orders.Core.Infrastructure;
+using TicketFlow.Orders.Api;
 using TicketFlow.Payments.Core.Application;
 using TicketFlow.Payments.Core.Infrastructure;
 using TicketFlow.Shared.Infrastructure;
@@ -27,6 +28,7 @@ namespace TicketFlow.Orders.Tests;
 /// se manejan a nivel componente (receive → handler → delete, igual que SqsSagaWorker) para no
 /// requerir 4 procesos host — la corrida con procesos reales es la evidencia funcional de S02.
 /// </summary>
+[Collection("orders-saga")]
 public sealed class SagaEndToEndTests
 {
     private sealed class Harness
@@ -46,7 +48,7 @@ public sealed class SagaEndToEndTests
         public TicketingSagaHandler TicketingHandler { get; }
         public CatalogSagaHandler CatalogHandler { get; }
 
-        public Harness()
+        public Harness(int holdTtlSeconds = HoldTtl.DefaultSeconds) // S11: TTL corto inyectado en tests de hold
         {
             var ddb = EmulatorAwsClients.CreateDynamoDb(Options);
             var s3 = EmulatorAwsClients.CreateS3(Options);
@@ -61,7 +63,8 @@ public sealed class SagaEndToEndTests
             CatalogHandler = new CatalogSagaHandler(CatalogRepo, Availability, NullLogger<CatalogSagaHandler>.Instance);
             Purchases = new DynamoDbPurchaseRepository(ddb);
             Outbox = new DynamoDbOutbox(ddb);
-            ProcessManager = new SagaProcessManager(Purchases, Outbox, NullLogger<SagaProcessManager>.Instance);
+            ProcessManager = new SagaProcessManager(Purchases, Outbox,
+                NullLogger<SagaProcessManager>.Instance, holdTtlSeconds);
             Payments = new DynamoDbPaymentRepository(ddb);
             PaymentsHandler = new PaymentsSagaHandler(Payments, NullLogger<PaymentsSagaHandler>.Instance);
             Tickets = new DynamoDbTicketRepository(ddb);
@@ -501,5 +504,162 @@ public sealed class SagaEndToEndTests
             await catalogWorker.StopAsync(CancellationToken.None);
             await paymentsWorker.StopAsync(CancellationToken.None);
         }
+    }
+
+    // --- S11: saga del hold end-to-end (D-0017/D-0018) — TTL corto inyectado ---------
+
+    /// <summary>Evento propio + harness con el TTL del test (el process manager escribe
+    /// expires_at = now + ttl al reservar: 5 s en tests, 90 s default en demos).</summary>
+    private static async Task<(Harness Harness, string EventId, int Initial)> SeededHoldHarnessAsync(
+        int available, decimal price, int ttl, CancellationToken ct)
+    {
+        var harness = new Harness(holdTtlSeconds: ttl);
+        var eventId = NewEventId();
+        await harness.CatalogRepo.InitializeAsync(
+            [CatalogEvent.Create(eventId, "E2E Hold Show",
+                new DateTimeOffset(2027, 5, 1, 20, 0, 0, TimeSpan.Zero), price, available)], ct);
+        return (harness, eventId, available);
+    }
+
+    /// <summary>Bombea la saga hasta que la condición se cumple (no solo terminal: los holds
+    /// aparcan en SEATS_RESERVED esperando el pago).</summary>
+    private static async Task<Purchase> PumpUntilAsync(Harness h, string purchaseId,
+        Func<Purchase?, bool> done, int timeoutSeconds, CancellationToken ct)
+    {
+        Handler catalog = (e, token) => h.CatalogHandler.HandleAsync(e, token);
+        Handler payments = async (e, token) => await h.PaymentsHandler.HandleAsync(e, token) is { } ev
+            ? [ev] : [];
+        Handler ticketing = async (e, token) => await h.TicketingHandler.HandleAsync(e, token) is { } ev
+            ? [ev] : [];
+        Handler orders = async (e, token) =>
+        {
+            await h.ProcessManager.HandleAsync(e, token);
+            return [];
+        };
+
+        var deadline = DateTimeOffset.UtcNow.AddSeconds(timeoutSeconds);
+        while (DateTimeOffset.UtcNow < deadline)
+        {
+            await h.Outbox.PublishPendingAsync(h.Transport, NullLogger<DynamoDbOutbox>.Instance, ct);
+            await DrainAsync(h, SagaQueues.CatalogCommands, catalog, ct);
+            await DrainAsync(h, SagaQueues.PaymentsCommands, payments, ct);
+            await DrainAsync(h, SagaQueues.TicketingCommands, ticketing, ct);
+            await DrainAsync(h, SagaQueues.OrdersEvents, orders, ct);
+
+            var purchase = await h.Purchases.GetAsync(purchaseId, ct);
+            if (done(purchase)) return purchase!;
+            await Task.Delay(100, ct);
+        }
+        throw new TimeoutException($"La compra {purchaseId} no cumplió la condición en {timeoutSeconds} s. " +
+                                   $"Estado: {(await h.Purchases.GetAsync(purchaseId, ct))?.Status}");
+    }
+
+    private static async Task<string> StartHoldPurchaseAsync(Harness h, string eventId, int seats,
+        string key, CancellationToken ct)
+    {
+        var purchase = Purchase.Create(PurchaseIds.New(), eventId, seats, "4111111111111111",
+            key, DateTimeOffset.UtcNow, hold: true);
+        await h.Purchases.CreateAsync(purchase, ct);
+        await h.Outbox.EnqueueAsync(SagaQueues.CatalogCommands, SagaTypes.ReserveSeats, purchase.PurchaseId,
+            new ReserveSeatsCommand(eventId, seats), ct);
+        return purchase.PurchaseId;
+    }
+
+    [SkippableFact]
+    public async Task Hold_expires_releases_seat_and_late_payment_is_rejected()
+    {
+        EmulatorTestSupport.SkipIfNotConfigured();
+        var ct = CancellationToken.None;
+        var (h, eventId, initial) = await SeededHoldHarnessAsync(1, 100m, ttl: 5, ct);
+        await h.Payments.InitializeAsync(ct);
+        await h.Tickets.InitializeAsync(ct);
+        await h.QrStore.InitializeAsync(ct);
+        var id = await StartHoldPurchaseAsync(h, eventId, 1, "e2e-hold-1", ct);
+
+        // AC1: retención observable — SEATS_RESERVED no-terminal con expires_at, sin intento de pago.
+        var reserved = await PumpUntilAsync(h, id,
+            p => p?.Status == PurchaseStatus.SEATS_RESERVED, 20, ct);
+        Assert.NotNull(reserved.ExpiresAt);
+        Assert.True(reserved.ExpiresAt <= DateTimeOffset.UtcNow.AddSeconds(6).ToUnixTimeSeconds()); // TTL inyectado
+        Assert.Null(await h.Payments.GetAsync(id, ct)); // el hold NO tocó Pagos (D-0018 §1)
+        Assert.Equal(initial - 1, (await h.CatalogRepo.GetByIdAsync(eventId, ct))!.Available);
+
+        // AC2: vence el TTL → sweeper → EXPIRED + release-seats → disponibilidad restaurada.
+        while (DateTimeOffset.UtcNow.ToUnixTimeSeconds() < reserved.ExpiresAt + 1)
+            await Task.Delay(200, ct);
+        var sweeper = new HoldExpirySweeper(h.Purchases, h.Outbox, 5,
+            NullLogger<HoldExpirySweeper>.Instance);
+        Assert.Equal(1, await sweeper.SweepOnceAsync(DateTimeOffset.UtcNow, ct));
+        var expired = await PumpUntilAsync(h, id, p => p?.Status == PurchaseStatus.EXPIRED, 20, ct);
+        Assert.Contains("reserva expirada sin pago", expired.FailureReason); // terminal con motivo
+        Assert.Equal(initial, (await h.CatalogRepo.GetByIdAsync(eventId, ct))!.Available);
+
+        // AC4: pago tardío rechazado en la capa de dominio (el 409 HTTP está en PaymentEndpointTests).
+        Assert.Equal(PaymentClaimOutcome.Expired, await h.Purchases.TryClaimPaymentAsync(id, ct));
+        // AC6: la compensación tardía NO libera dos veces (TryNoteFailure pierde sobre EXPIRED).
+        Assert.False(await h.Purchases.TryNoteFailureAsync(id, "pago rechazado tardío", ct));
+        await h.Outbox.PublishPendingAsync(h.Transport, NullLogger<DynamoDbOutbox>.Instance, ct);
+        Assert.Equal(initial, (await h.CatalogRepo.GetByIdAsync(eventId, ct))!.Available);
+    }
+
+    [SkippableFact]
+    public async Task Hold_paid_within_ttl_completes_saga_like_v1()
+    {
+        EmulatorTestSupport.SkipIfNotConfigured();
+        var ct = CancellationToken.None;
+        var (h, eventId, initial) = await SeededHoldHarnessAsync(5, 100m, ttl: 90, ct);
+        await h.Payments.InitializeAsync(ct);
+        await h.Tickets.InitializeAsync(ct);
+        await h.QrStore.InitializeAsync(ct);
+        var id = await StartHoldPurchaseAsync(h, eventId, 2, "e2e-hold-2", ct);
+
+        var reserved = await PumpUntilAsync(h, id,
+            p => p?.Status == PurchaseStatus.SEATS_RESERVED, 20, ct);
+
+        // El endpoint de pago gana el claim y emite authorize-payment con el monto persistido.
+        Assert.Equal(PaymentClaimOutcome.Claimed, await h.Purchases.TryClaimPaymentAsync(id, ct));
+        var held = await h.Purchases.GetAsync(id, ct);
+        await h.Outbox.EnqueueAsync(SagaQueues.PaymentsCommands, SagaTypes.AuthorizePayment, id,
+            new AuthorizePaymentCommand(held!.Pan, held.Amount!.Value), ct);
+
+        // AC3: la saga continúa hasta TICKETS_ISSUED como en V1 — disponibilidad queda decrementada.
+        var final = await PumpUntilTerminalAsync(h, id, ct);
+        Assert.Equal(PurchaseStatus.TICKETS_ISSUED, final.Status);
+        Assert.Equal(2, final.TicketIds!.Count);
+        Assert.Equal(100m * 2, (await h.Payments.GetAsync(id, ct))!.Amount); // monto = precio × asientos
+        Assert.Equal(initial - 2, (await h.CatalogRepo.GetByIdAsync(eventId, ct))!.Available);
+        Assert.NotNull(reserved.ExpiresAt); // sigue observable (historia del hold)
+    }
+
+    [SkippableFact]
+    public async Task Seat_freed_by_expiry_is_rebuyable_by_new_buyer()
+    {
+        EmulatorTestSupport.SkipIfNotConfigured();
+        var ct = CancellationToken.None;
+        var (h, eventId, initial) = await SeededHoldHarnessAsync(1, 100m, ttl: 5, ct); // UN asiento
+        await h.Payments.InitializeAsync(ct);
+        await h.Tickets.InitializeAsync(ct);
+        await h.QrStore.InitializeAsync(ct);
+        var holdId = await StartHoldPurchaseAsync(h, eventId, 1, "e2e-hold-3", ct);
+        var reserved = await PumpUntilAsync(h, holdId,
+            p => p?.Status == PurchaseStatus.SEATS_RESERVED, 20, ct);
+        while (DateTimeOffset.UtcNow.ToUnixTimeSeconds() < reserved.ExpiresAt + 1)
+            await Task.Delay(200, ct);
+        var sweeper = new HoldExpirySweeper(h.Purchases, h.Outbox, 5,
+            NullLogger<HoldExpirySweeper>.Instance);
+        await sweeper.SweepOnceAsync(DateTimeOffset.UtcNow, ct);
+        await PumpUntilAsync(h, holdId, p => p?.Status == PurchaseStatus.EXPIRED, 20, ct);
+        Assert.Equal(initial, (await h.CatalogRepo.GetByIdAsync(eventId, ct))!.Available); // volvió al pool
+
+        // AC5: comprador nuevo (key distinta, sin hold) se lleva el asiento liberado.
+        var buyer = Purchase.Create(PurchaseIds.New(), eventId, 1, "4111111111111111",
+            "e2e-hold-3-buyer", DateTimeOffset.UtcNow);
+        await h.Purchases.CreateAsync(buyer, ct);
+        await h.Outbox.EnqueueAsync(SagaQueues.CatalogCommands, SagaTypes.ReserveSeats, buyer.PurchaseId,
+            new ReserveSeatsCommand(eventId, 1), ct);
+        var final = await PumpUntilTerminalAsync(h, buyer.PurchaseId, ct);
+
+        Assert.Equal(PurchaseStatus.TICKETS_ISSUED, final.Status); // el asiento no quedó secuestrado
+        Assert.Equal(initial - 1, (await h.CatalogRepo.GetByIdAsync(eventId, ct))!.Available);
     }
 }

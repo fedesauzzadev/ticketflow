@@ -1,12 +1,18 @@
+using System.Text.Json;
 using System.Text.RegularExpressions;
 using TicketFlow.Orders.Core.Domain;
 
 namespace TicketFlow.Orders.Core.Application;
 
-/// <summary>Body del POST /purchases según el contrato del plan §2.</summary>
+/// <summary>Body del POST /purchases según el contrato del plan §2 + hold (D-0018 §1).</summary>
 public sealed record CardRequest(string? Pan, string? Holder, string? Expiry, string? Cvv);
 
-public sealed record PurchaseRequest(string? EventId, int? Seats, CardRequest? Card);
+/// <summary>
+/// Hold llega como <see cref="JsonElement"/> crudo para distinguir "ausente" de "no-booleano":
+/// un hold:"yes" debe dar 400 invalid-purchase-request accionable (D-0018 §1), no un invalid-body
+/// genérico de deserialización.
+/// </summary>
+public sealed record PurchaseRequest(string? EventId, int? Seats, CardRequest? Card, JsonElement? Hold = null);
 
 /// <summary>
 /// Validación de la frontera HTTP (NFR-1): devuelve mensajes accionables por campo; vacío = válido.
@@ -44,6 +50,10 @@ public static partial class PurchaseRequestValidator
 
         if (request.Seats is null or < 1 or > 8)
             errors.Add("seats debe ser un entero entre 1 y 8");
+
+        // D-0018 §1: hold opcional, default false; presente pero no-booleano ⇒ 400 accionable.
+        if (request.Hold is { ValueKind: not (JsonValueKind.True or JsonValueKind.False) })
+            errors.Add("hold debe ser true o false");
 
         var card = request.Card;
         if (card is null)

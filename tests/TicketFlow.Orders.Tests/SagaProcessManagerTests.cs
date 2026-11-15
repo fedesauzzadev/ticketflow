@@ -13,46 +13,8 @@ namespace TicketFlow.Orders.Tests;
 /// </summary>
 public sealed class SagaProcessManagerTests
 {
-    private sealed class FakePurchaseRepository : IPurchaseRepository
-    {
-        public Dictionary<string, Purchase> Store { get; } = [];
-
-        public Task InitializeAsync(CancellationToken ct) => Task.CompletedTask;
-
-        public Task CreateAsync(Purchase purchase, CancellationToken ct)
-        {
-            Store[purchase.PurchaseId] = purchase;
-            return Task.CompletedTask;
-        }
-
-        public Task<Purchase?> GetAsync(string purchaseId, CancellationToken ct) =>
-            Task.FromResult(Store.GetValueOrDefault(purchaseId));
-
-        public Task<bool> TryTransitionAsync(string purchaseId, PurchaseStatus from, PurchaseStatus to,
-            string? reason = null, IReadOnlyList<string>? ticketIds = null, CancellationToken ct = default)
-        {
-            if (!Store.TryGetValue(purchaseId, out var purchase) || purchase.Status != from)
-                return Task.FromResult(false);
-            Store[purchaseId] = purchase with
-            {
-                Status = to,
-                FailureReason = reason ?? purchase.FailureReason,
-                TicketIds = ticketIds ?? purchase.TicketIds,
-            };
-            return Task.FromResult(true);
-        }
-
-        public Task<bool> TryNoteFailureAsync(string purchaseId, string reason, CancellationToken ct)
-        {
-            if (!Store.TryGetValue(purchaseId, out var purchase)
-                || purchase.Status is not (PurchaseStatus.SEATS_RESERVED or PurchaseStatus.PAYMENT_APPROVED)
-                || purchase.PendingFailureReason is not null)
-                return Task.FromResult(false);
-            Store[purchaseId] = purchase with { PendingFailureReason = reason };
-            return Task.FromResult(true);
-        }
-    }
-
+    // El fake vive en FakePurchaseRepository.cs: misma semántica CAS que el repo real, compartido
+    // con los tests del sweeper y el property test de tormenta.
     private sealed class FakeOutbox : IOutbox
     {
         public List<(string Queue, string Type, string PurchaseId, object Payload)> Enqueued { get; } = [];

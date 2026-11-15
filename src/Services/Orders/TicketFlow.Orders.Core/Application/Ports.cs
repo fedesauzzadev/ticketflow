@@ -23,6 +23,60 @@ public interface IPurchaseRepository
     /// previo) y devuelve true solo la primera vez — quien gana emite release-seats exactamente una vez.
     /// </summary>
     Task<bool> TryNoteFailureAsync(string purchaseId, string reason, CancellationToken ct);
+
+    /// <summary>
+    /// Transición PENDING→SEATS_RESERVED de un HOLD (D-0017 §1): escribe expires_at y el monto
+    /// persistido en el MISMO UpdateItem condicional — un crash no puede dejar un hold sin
+    /// expiración observable. CAS por #st=PENDING AND hold=1.
+    /// </summary>
+    Task<bool> TryHoldReserveAsync(string purchaseId, long expiresAtEpochSeconds, decimal amount,
+        CancellationToken ct);
+
+    /// <summary>
+    /// Sweeper (D-0017 §2): holds SEATS_RESERVED vencidos (sin claim) o con claim zombi
+    /// (payment_initiated_at &lt; cutoff de contingencia 2×TTL+30 s, §5). El filtro excluye por
+    /// construcción a las compras sin hold (nunca llevan expires_at).
+    /// </summary>
+    Task<IReadOnlyList<Purchase>> ScanExpirableHoldsAsync(long nowEpochSeconds,
+        long zombieCutoffEpochSeconds, CancellationToken ct);
+
+    /// <summary>
+    /// CAS SEATS_RESERVED→EXPIRED (D-0017 §2/§4): gana SOLO si ningún pago reclamó la compra
+    /// (attribute_not_exists(payment_initiated_at)) — la carrera pago-vs-vencimiento se resuelve
+    /// en la capa de datos. Terminal con reason (F-V1-01).
+    /// </summary>
+    Task<bool> TryExpireAsync(string purchaseId, string reason, CancellationToken ct);
+
+    /// <summary>Tier de contingencia (D-0017 §5): reclama el hold cuyo claim quedó zombi
+    /// (payment_initiated_at &lt; cutoff) — cierra el único hueco de terminalidad del hold.</summary>
+    Task<bool> TryExpireZombieAsync(string purchaseId, string reason, long cutoffEpochSeconds,
+        CancellationToken ct);
+
+    /// <summary>
+    /// Claim del pago (D-0018 §3, D-0017 §4): CAS que escribe payment_initiated_at solo si la
+    /// compra es hold SEATS_RESERVED vigente (expires_at &gt; now) sin claim previo. Determina
+    /// quién gana la carrera contra el sweeper.
+    /// </summary>
+    Task<PaymentClaimOutcome> TryClaimPaymentAsync(string purchaseId, CancellationToken ct);
+}
+
+/// <summary>Resultado del claim de pago (D-0018 §3) — mapea 1:1 al contrato HTTP.</summary>
+public enum PaymentClaimOutcome
+{
+    /// <summary>202: claim ganado — el caller emite authorize-payment.</summary>
+    Claimed,
+
+    /// <summary>200: replay del endpoint (claim ya tomado, sin efectos).</summary>
+    AlreadyClaimed,
+
+    /// <summary>409 hold-expired: la reserva ya venció y liberó.</summary>
+    Expired,
+
+    /// <summary>409 invalid-state: no es hold, o su estado ya avanzó.</summary>
+    NotClaimable,
+
+    /// <summary>404 purchase-not-found.</summary>
+    NotFound,
 }
 
 /// <summary>

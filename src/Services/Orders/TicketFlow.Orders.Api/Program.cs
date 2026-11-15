@@ -16,6 +16,9 @@ var builder = WebApplication.CreateBuilder(args);
 // Contrato de traza D-0011: Timestamp ISO UTC ordenable (trace-purchase.ps1).
 builder.Logging.AddServiceTraceLogging();
 
+// TTL de holds (D-0017 §6): fail-fast al arranque — un env inválido no deja arrancar Órdenes.
+var holdTtl = HoldTtl.FromEnvironment();
+
 // Config 100% por env, validada fail-fast al arranque (NFR-1 / D-0003).
 var awsOptions = EmulatorAwsOptions.FromEnvironment();
 builder.Services.AddSingleton(awsOptions);
@@ -35,9 +38,14 @@ builder.Services.AddSingleton<DynamoDbIdempotencyStore>();
 builder.Services.AddSingleton<IIdempotencyStore>(sp => sp.GetRequiredService<DynamoDbIdempotencyStore>());
 builder.Services.AddSingleton<ICatalogAvailabilityGateway>(
     _ => new HttpCatalogGateway(Environment.GetEnvironmentVariable("CATALOG_BASE_URL"))); // D-0009
-builder.Services.AddSingleton<SagaProcessManager>();
+builder.Services.AddSingleton<SagaProcessManager>(sp => new SagaProcessManager(
+    sp.GetRequiredService<IPurchaseRepository>(), sp.GetRequiredService<IOutbox>(),
+    sp.GetRequiredService<ILogger<SagaProcessManager>>(), holdTtl));
 builder.Services.AddHostedService<OutboxRelayWorker>();
 builder.Services.AddHostedService<OrdersEventsWorker>();
+builder.Services.AddHostedService(sp => new HoldExpirySweeper(
+    sp.GetRequiredService<IPurchaseRepository>(), sp.GetRequiredService<IOutbox>(), holdTtl,
+    sp.GetRequiredService<ILogger<HoldExpirySweeper>>())); // D-0017 §2
 
 // Contrato HTTP en snake_case ({purchase_id, ...}); reason/ticket_ids se omiten si son null (plan §2).
 builder.Services.ConfigureHttpJsonOptions(o =>
@@ -54,8 +62,8 @@ var app = builder.Build();
 await app.Services.GetRequiredService<DynamoDbPurchaseRepository>().InitializeAsync(CancellationToken.None);
 await app.Services.GetRequiredService<DynamoDbOutbox>().InitializeAsync(CancellationToken.None);
 await app.Services.GetRequiredService<DynamoDbIdempotencyStore>().InitializeAsync(CancellationToken.None);
-app.Logger.LogInformation("órdenes listo en :{Port} — tablas {Purchases} + {Outbox} + {Idempotency} aseguradas",
-    port, DynamoDbPurchaseRepository.TableName, DynamoDbOutbox.TableName, DynamoDbIdempotencyStore.TableName);
+app.Logger.LogInformation("órdenes listo en :{Port} — tablas {Purchases} + {Outbox} + {Idempotency} aseguradas; TTL de holds {Ttl} s",
+    port, DynamoDbPurchaseRepository.TableName, DynamoDbOutbox.TableName, DynamoDbIdempotencyStore.TableName, holdTtl);
 
 // Errores 500 sin internals (NFR-4).
 app.UseExceptionHandler(errorApp => errorApp.Run(ctx =>
@@ -128,7 +136,8 @@ app.MapPost("/purchases", async (HttpRequest http, IPurchaseRepository purchases
     }
 
     var purchase = Purchase.Create(
-        PurchaseIds.New(), request.EventId!, request.Seats!.Value, request.Card!.Pan!, key, DateTimeOffset.UtcNow);
+        PurchaseIds.New(), request.EventId!, request.Seats!.Value, request.Card!.Pan!, key,
+        DateTimeOffset.UtcNow, hold: request.Hold is { ValueKind: JsonValueKind.True });
     if (!await idempotency.TryClaimAsync(key, requestHash, purchase.PurchaseId, ct))
     {
         // Carrera: otra request con la misma key ganó el claim mientras hacíamos el peek.
@@ -145,8 +154,7 @@ app.MapPost("/purchases", async (HttpRequest http, IPurchaseRepository purchases
 
     logger.LogInformation("compra {PurchaseId} creada PENDING para {EventId} x{Seats} (key {Key})",
         purchase.PurchaseId, purchase.EventId, purchase.Seats, purchase.IdempotencyKey);
-    return Results.Created($"/purchases/{purchase.PurchaseId}",
-        new PurchaseResponse(purchase.PurchaseId, purchase.Status.ToString(), null, null, purchase.CreatedAt));
+    return Results.Created($"/purchases/{purchase.PurchaseId}", PurchaseResponse.Of(purchase));
 });
 
 // Key ya registrada (D-0009): hash igual ⇒ la MISMA compra (replay 200, heal de ventana de crash);
@@ -170,22 +178,22 @@ static async Task<IResult> ResolveExistingKeyAsync(
     {
         // Ventana de crash entre claim y create: la key es dueña del id → el replay la completa.
         purchase = Purchase.Create(claim.PurchaseId, request.EventId!, request.Seats!.Value,
-            request.Card!.Pan!, key, DateTimeOffset.UtcNow);
+            request.Card!.Pan!, key, DateTimeOffset.UtcNow,
+            hold: request.Hold is { ValueKind: JsonValueKind.True });
         await purchases.CreateAsync(purchase, ct);
         await outbox.EnqueueAsync(SagaQueues.CatalogCommands, SagaTypes.ReserveSeats, purchase.PurchaseId,
             new ReserveSeatsCommand(purchase.EventId, purchase.Seats), ct);
         logger.LogInformation("compra {PurchaseId} completada por replay (claim previo sin compra)", purchase.PurchaseId);
-        return Results.Created($"/purchases/{purchase.PurchaseId}",
-            new PurchaseResponse(purchase.PurchaseId, purchase.Status.ToString(), null, null, purchase.CreatedAt));
+        return Results.Created($"/purchases/{purchase.PurchaseId}", PurchaseResponse.Of(purchase));
     }
 
     logger.LogInformation("replay con key {Key}: misma compra {PurchaseId} ({Status}) — sin efectos nuevos",
         key, purchase.PurchaseId, purchase.Status);
-    return Results.Ok(new PurchaseResponse(purchase.PurchaseId, purchase.Status.ToString(),
-        purchase.FailureReason, purchase.TicketIds, purchase.CreatedAt));
+    // AC6 (primera mitad): la compra expirada se devuelve tal cual — terminal, sin nuevos efectos.
+    return Results.Ok(PurchaseResponse.Of(purchase));
 }
 
-// Estado compartido observable (H-02 AC4).
+// Estado compartido observable (H-02 AC4; D-0018 §2: expires_at solo en holds).
 app.MapGet("/purchases/{id}", async (string id, IPurchaseRepository purchases, CancellationToken ct) =>
 {
     if (!PurchaseIds.IsValid(id))
@@ -196,9 +204,60 @@ app.MapGet("/purchases/{id}", async (string id, IPurchaseRepository purchases, C
     return purchase is null
         ? Results.Problem(statusCode: 404, title: "Purchase not found", type: "purchase-not-found",
             detail: $"La compra '{id}' no existe.")
-        : Results.Ok(new PurchaseResponse(
-            purchase.PurchaseId, purchase.Status.ToString(), purchase.FailureReason, purchase.TicketIds,
-            purchase.CreatedAt));
+        : Results.Ok(PurchaseResponse.Of(purchase));
+});
+
+// Completar el pago de un hold (D-0018 §3): claim CAS contra el sweeper (D-0017 §4).
+// 202 claim ganado (la saga V1 sigue sola) · 200 replay del endpoint · 409 hold-expired (tardío)
+// · 409 invalid-state (no-hold o estado avanzado) · 404 · 400 id inválido.
+app.MapPost("/purchases/{id}/payment", async (string id, IPurchaseRepository purchases, IOutbox outbox,
+    ILogger<Program> logger, CancellationToken ct) =>
+{
+    if (!PurchaseIds.IsValid(id))
+        return Results.Problem(statusCode: 400, title: "Invalid purchase id", type: "invalid-purchase-id",
+            detail: "El id de compra debe tener formato 'pur-' + 32 hex.");
+
+    switch (await purchases.TryClaimPaymentAsync(id, ct))
+    {
+        case PaymentClaimOutcome.NotFound:
+            return Results.Problem(statusCode: 404, title: "Purchase not found", type: "purchase-not-found",
+                detail: $"La compra '{id}' no existe.");
+
+        case PaymentClaimOutcome.Expired:
+            logger.LogInformation("pago tardío de compra {PurchaseId} rechazado: la reserva ya expiró", id);
+            return Results.Problem(statusCode: 409, title: "Hold expired", type: "hold-expired",
+                detail: "La reserva expiró antes de completar el pago.");
+
+        case PaymentClaimOutcome.AlreadyClaimed:
+        {
+            var current = await purchases.GetAsync(id, ct);
+            logger.LogInformation("pago de compra {PurchaseId} ya reclamado: replay del endpoint, sin efectos", id);
+            return Results.Ok(PurchaseResponse.Of(current!));
+        }
+
+        case PaymentClaimOutcome.NotClaimable:
+        {
+            var current = await purchases.GetAsync(id, ct);
+            logger.LogInformation("pago de compra {PurchaseId} rechazado por estado {Status}", id, current?.Status);
+            return Results.Problem(statusCode: 409, title: "Invalid state", type: "invalid-state",
+                detail: $"La compra está en estado {current?.Status.ToString() ?? "desconocido"} — el pago " +
+                        "solo se completa desde un hold SEATS_RESERVED vigente.");
+        }
+
+        default: // Claimed: el monto y la PAN viven en el agregado desde la reserva (D-0017 §1)
+        {
+            var purchase = await purchases.GetAsync(id, ct);
+            if (purchase?.Amount is not { } amount)
+                return Results.Problem(statusCode: 500, title: "Internal error", type: "internal-error");
+            await outbox.EnqueueAsync(SagaQueues.PaymentsCommands, SagaTypes.AuthorizePayment, id,
+                new AuthorizePaymentCommand(purchase.Pan, amount), ct);
+            logger.LogInformation(
+                "compra {PurchaseId}: pago reclamado dentro del TTL — emito authorize-payment", id);
+            return Results.Accepted($"/purchases/{purchase.PurchaseId}",
+                new PaymentClaimResponse(purchase.PurchaseId, purchase.Status.ToString(),
+                    PurchaseResponse.ExpiresAtOf(purchase)));
+        }
+    }
 });
 
 app.Run();
@@ -206,4 +265,16 @@ app.Run();
 public partial class Program { }
 
 public sealed record PurchaseResponse(
-    string PurchaseId, string Status, string? Reason, IReadOnlyList<string>? TicketIds, DateTimeOffset CreatedAt);
+    string PurchaseId, string Status, string? Reason, IReadOnlyList<string>? TicketIds,
+    DateTimeOffset CreatedAt, DateTimeOffset? ExpiresAt = null)
+{
+    public static PurchaseResponse Of(Purchase p) =>
+        new(p.PurchaseId, p.Status.ToString(), p.FailureReason, p.TicketIds, p.CreatedAt,
+            ExpiresAtOf(p));
+
+    /// <summary>expires_at ISO-8601 observable solo cuando existe (holds, D-0018 §2).</summary>
+    internal static DateTimeOffset? ExpiresAtOf(Purchase p) =>
+        p.ExpiresAt is { } epoch ? DateTimeOffset.FromUnixTimeSeconds(epoch) : null;
+}
+
+public sealed record PaymentClaimResponse(string PurchaseId, string Status, DateTimeOffset? ExpiresAt);
