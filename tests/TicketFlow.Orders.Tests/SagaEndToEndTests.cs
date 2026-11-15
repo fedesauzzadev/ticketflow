@@ -174,6 +174,65 @@ public sealed class SagaEndToEndTests
         }
     }
 
+    /// <summary>
+    /// Worker REAL con injector sobre cualquier cola (repros de doble fallo F-V1-R2-01):
+    /// handler real del servicio + publicación de su evento a OrdersEvents, igual que los
+    /// workers de producción — el agotamiento emite step-failed por el transporte real.
+    /// </summary>
+    private sealed class InjectedWorker(
+        IAmazonSQS sqs, SqsSagaTransport transport, string queueName, Handler handler, FailureInjector injector)
+        : SqsSagaWorker(sqs, transport, queueName, NullLogger.Instance, injector)
+    {
+        protected override async Task HandleAsync(SagaEnvelope envelope, CancellationToken ct)
+        {
+            foreach (var @event in await handler(envelope, ct))
+                await Transport.SendAsync(SagaQueues.OrdersEvents, @event, ct);
+        }
+    }
+
+    /// <summary>
+    /// Bombea la saga (relay + colas manuales) hasta estado terminal, saltando las colas que
+    /// consumen workers reales con inyección (F-V1-R2-01: cada step-failed de un paso fallado
+    /// debe llegar a Órdenes — el dedup id del transporte ahora incluye el paso).
+    /// </summary>
+    private static async Task<Purchase> PumpUntilTerminalExceptAsync(
+        Harness h, string purchaseId, CancellationToken ct, params string[] realWorkerQueues)
+    {
+        Handler catalog = (e, token) => h.CatalogHandler.HandleAsync(e, token);
+        Handler payments = async (e, token) => await h.PaymentsHandler.HandleAsync(e, token) is { } ev
+            ? [ev] : [];
+        Handler ticketing = async (e, token) => await h.TicketingHandler.HandleAsync(e, token) is { } ev
+            ? [ev] : [];
+        Handler orders = async (e, token) =>
+        {
+            await h.ProcessManager.HandleAsync(e, token);
+            return [];
+        };
+
+        var deadline = DateTimeOffset.UtcNow.AddSeconds(60);
+        while (DateTimeOffset.UtcNow < deadline)
+        {
+            await h.Outbox.PublishPendingAsync(h.Transport, NullLogger<DynamoDbOutbox>.Instance, ct);
+            if (!realWorkerQueues.Contains(SagaQueues.CatalogCommands))
+                await DrainAsync(h, SagaQueues.CatalogCommands, catalog, ct);
+            if (!realWorkerQueues.Contains(SagaQueues.PaymentsCommands))
+                await DrainAsync(h, SagaQueues.PaymentsCommands, payments, ct);
+            if (!realWorkerQueues.Contains(SagaQueues.TicketingCommands))
+                await DrainAsync(h, SagaQueues.TicketingCommands, ticketing, ct);
+            await DrainAsync(h, SagaQueues.OrdersEvents, orders, ct);
+
+            var purchase = await h.Purchases.GetAsync(purchaseId, ct);
+            if (purchase?.Status is PurchaseStatus.TICKETS_ISSUED or PurchaseStatus.FAILED)
+                return purchase;
+            await Task.Delay(100, ct);
+        }
+
+        var stuck = await h.Purchases.GetAsync(purchaseId, ct);
+        throw new TimeoutException(
+            $"La compra {purchaseId} no llegó a estado terminal en 60 s (F-V1-R2-01). Estado: " +
+            $"{stuck?.Status}; pending_failure_reason: {stuck?.PendingFailureReason ?? "-"}");
+    }
+
     [SkippableFact]
     public async Task Approved_purchase_reaches_TICKETS_ISSUED_with_ticket_qr_and_exact_decrement()
     {
@@ -308,13 +367,136 @@ public sealed class SagaEndToEndTests
             var stored = await h.CatalogRepo.GetByIdAsync(eventId, ct);
             Assert.Equal(initial - 2, stored!.Available);
 
-            // La entrega fallida quedó inspeccionable en la DLQ del Catálogo (peek-only).
-            var dead = await h.Transport.PeekDlqAsync(SagaQueues.CatalogCommands, ct);
-            Assert.Contains(dead, d => d.Type == SagaTypes.ReleaseSeats && d.PurchaseId == purchase.PurchaseId);
+            // Sin assert de contenido DLQ: las DLQ compartidas son peek-only (solo acumulan) y
+            // el peek entrega una página de 10 con orden no determinístico entre grupos — con
+            // deuda acumulada el assert flakea (visto en corrida 2026-11-15). Inspeccionabilidad
+            // de la DLQ: WorkerBackoffDlqTests (cola dedicada por corrida, determinista).
         }
         finally
         {
             await catalogWorker.StopAsync(CancellationToken.None);
+        }
+    }
+
+    // F-V1-R2-01 (repro QA a): issue-tickets + release-seats persistent con PAN APROBADO —
+    // DOS step-failed de la MISMA compra (pasos distintos). Con el dedup id {type}:{purchase}
+    // SQS FIFO tragaba el segundo y la compra quedaba PAYMENT_APPROVED eterna. DEBE terminar
+    // FAILED con la reserva huérfana declarada y disponibilidad explícita sin drift oculto.
+    [SkippableFact]
+    public async Task Double_failure_issue_tickets_and_release_seats_ends_terminal_failed_with_orphan()
+    {
+        EmulatorTestSupport.SkipIfNotConfigured();
+        var ct = CancellationToken.None;
+        var (h, eventId, initial) = await SeededEventAsync(5, 100.00m, ct);
+        await h.Payments.InitializeAsync(ct);
+
+        var catalogInjector = new FailureInjector();
+        catalogInjector.Inject(SagaTypes.ReleaseSeats, FailureInjector.Persistent, 2);
+        var ticketingInjector = new FailureInjector();
+        ticketingInjector.Inject(SagaTypes.IssueTickets, FailureInjector.Persistent, 2);
+
+        Handler catalog = (e, token) => h.CatalogHandler.HandleAsync(e, token);
+        Handler ticketing = async (e, token) => await h.TicketingHandler.HandleAsync(e, token) is { } ev
+            ? [ev] : [];
+
+        var catalogWorker = new InjectedWorker(h.Sqs, h.Transport, SagaQueues.CatalogCommands,
+            catalog, catalogInjector);
+        var ticketingWorker = new InjectedWorker(h.Sqs, h.Transport, SagaQueues.TicketingCommands,
+            ticketing, ticketingInjector);
+        await catalogWorker.StartAsync(ct);
+        await ticketingWorker.StartAsync(ct);
+        try
+        {
+            // PAN aprobado: reserva OK → pago OK → issue-tickets agota 3 intentos (1er
+            // step-failed) → compensación release-seats agota 3 intentos (2do step-failed).
+            var purchase = Purchase.Create(PurchaseIds.New(), eventId, 1, "4111111111111111",
+                "e2e-key-r2a", DateTimeOffset.UtcNow);
+            await h.Purchases.CreateAsync(purchase, ct);
+            await h.Outbox.EnqueueAsync(SagaQueues.CatalogCommands, SagaTypes.ReserveSeats,
+                purchase.PurchaseId, new ReserveSeatsCommand(eventId, 1), ct);
+
+            var final = await PumpUntilTerminalExceptAsync(h, purchase.PurchaseId, ct,
+                SagaQueues.CatalogCommands, SagaQueues.TicketingCommands);
+
+            // AC2: terminal explícito — fallo original anotado + compensación agotada declarada.
+            Assert.Equal(PurchaseStatus.FAILED, final.Status);
+            Assert.NotNull(final.FailureReason);
+            Assert.Contains(SagaTypes.IssueTickets, final.FailureReason);
+            Assert.Contains(SagaTypes.ReleaseSeats, final.FailureReason);
+            Assert.Contains("huérfano", final.FailureReason);
+
+            // AC3 sin drift oculto: disponibilidad explícita = asiento tomado (huérfano).
+            var stored = await h.CatalogRepo.GetByIdAsync(eventId, ct);
+            Assert.Equal(initial - 1, stored!.Available);
+
+            // Sin assert de contenido DLQ: las DLQ compartidas son peek-only (nunca se vacían)
+            // y el peek entrega una sola página de 10 — con deuda acumulada el assert sería
+            // no-determinístico por profundidad. Inspeccionabilidad: WorkerBackoffDlqTests
+            // (cola dedicada) + e2e F-V1-01. Lo esencial de F-V1-R2-01 es lo asertado arriba:
+            // el 2do step-failed LLEGÓ (terminal + reason) — antes lo tragaba el dedup.
+        }
+        finally
+        {
+            await catalogWorker.StopAsync(CancellationToken.None);
+            await ticketingWorker.StopAsync(CancellationToken.None);
+        }
+    }
+
+    // F-V1-R2-01 (repro QA b): authorize-payment + release-seats persistent con PAN APROBADO —
+    // fallo temprano que compensa y compensación que falla: 2 step-failed (pasos distintos)
+    // de la misma compra. Con el dedup colisionado quedaba SEATS_RESERVED eterna sin reason
+    // (síntoma de F-V1-01 con 2 reglas). DEBE terminar FAILED con la huérfana declarada.
+    [SkippableFact]
+    public async Task Double_failure_authorize_payment_and_release_seats_ends_terminal_failed_with_orphan()
+    {
+        EmulatorTestSupport.SkipIfNotConfigured();
+        var ct = CancellationToken.None;
+        var (h, eventId, initial) = await SeededEventAsync(4, 75.00m, ct);
+        await h.Payments.InitializeAsync(ct);
+
+        var catalogInjector = new FailureInjector();
+        catalogInjector.Inject(SagaTypes.ReleaseSeats, FailureInjector.Persistent, 2);
+        var paymentsInjector = new FailureInjector();
+        paymentsInjector.Inject(SagaTypes.AuthorizePayment, FailureInjector.Persistent, 2);
+
+        Handler catalog = (e, token) => h.CatalogHandler.HandleAsync(e, token);
+        Handler payments = async (e, token) => await h.PaymentsHandler.HandleAsync(e, token) is { } ev
+            ? [ev] : [];
+
+        var catalogWorker = new InjectedWorker(h.Sqs, h.Transport, SagaQueues.CatalogCommands,
+            catalog, catalogInjector);
+        var paymentsWorker = new InjectedWorker(h.Sqs, h.Transport, SagaQueues.PaymentsCommands,
+            payments, paymentsInjector);
+        await catalogWorker.StartAsync(ct);
+        await paymentsWorker.StartAsync(ct);
+        try
+        {
+            var purchase = Purchase.Create(PurchaseIds.New(), eventId, 2, "4111111111111111",
+                "e2e-key-r2b", DateTimeOffset.UtcNow);
+            await h.Purchases.CreateAsync(purchase, ct);
+            await h.Outbox.EnqueueAsync(SagaQueues.CatalogCommands, SagaTypes.ReserveSeats,
+                purchase.PurchaseId, new ReserveSeatsCommand(eventId, 2), ct);
+
+            var final = await PumpUntilTerminalExceptAsync(h, purchase.PurchaseId, ct,
+                SagaQueues.CatalogCommands, SagaQueues.PaymentsCommands);
+
+            Assert.Equal(PurchaseStatus.FAILED, final.Status);
+            Assert.NotNull(final.FailureReason);
+            Assert.Contains(SagaTypes.AuthorizePayment, final.FailureReason);
+            Assert.Contains(SagaTypes.ReleaseSeats, final.FailureReason);
+            Assert.Contains("huérfano", final.FailureReason);
+
+            var stored = await h.CatalogRepo.GetByIdAsync(eventId, ct);
+            Assert.Equal(initial - 2, stored!.Available);
+
+            // Sin assert de contenido DLQ (misma razón que el repro a: peek de 10 sobre una
+            // DLQ compartida que solo acumula). Lo esencial: el step-failed de la compensación
+            // llegó a Órdenes pese al previo de la misma compra → FAILED + huérfana declarada.
+        }
+        finally
+        {
+            await catalogWorker.StopAsync(CancellationToken.None);
+            await paymentsWorker.StopAsync(CancellationToken.None);
         }
     }
 }

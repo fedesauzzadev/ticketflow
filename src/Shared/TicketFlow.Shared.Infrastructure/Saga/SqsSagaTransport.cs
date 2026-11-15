@@ -11,7 +11,9 @@ namespace TicketFlow.Shared.Infrastructure.Saga;
 /// Transporte de la saga sobre SQS FIFO del emulador (D-0006). Crea las colas idempotentemente
 /// (tolerante a carreras de arranque — el emulador da 500 crudos en concurrencia), envía con
 /// MessageGroupId=purchase_id (orden por compra) y MessageDeduplicationId={type}:{purchase_id}
-/// (dedup natural de reenvíos — ventana del emulador; el guard definitivo es el CAS del process manager).
+/// (dedup natural de reenvíos — ventana del emulador; el guard definitivo es el CAS del process
+/// manager). El step-failed añade el paso fallado al id (F-V1-R2-01): dos fallos de pasos
+/// distintos de la misma compra deben llegar ambos a Órdenes.
 /// </summary>
 public sealed class SqsSagaTransport(IAmazonSQS sqs)
 {
@@ -67,8 +69,25 @@ public sealed class SqsSagaTransport(IAmazonSQS sqs)
             QueueUrl = url,
             MessageBody = SagaJson.SerializeEnvelope(envelope),
             MessageGroupId = envelope.PurchaseId,
-            MessageDeduplicationId = $"{envelope.Type}:{envelope.PurchaseId}",
+            // F-V1-R2-01: sin el paso fallado, el step-failed de la compensación colisiona con
+            // el step-failed previo de la MISMA compra y SQS FIFO lo traga en silencio.
+            MessageDeduplicationId = envelope.Type == SagaTypes.StepFailed
+                ? $"{envelope.Type}:{envelope.PurchaseId}:{FailedStepOf(envelope)}"
+                : $"{envelope.Type}:{envelope.PurchaseId}",
         }, ct);
+    }
+
+    /// <summary>
+    /// Paso fallado del step-failed para su dedup id (F-V1-R2-01). Id único si el payload no
+    /// lo da: un step-failed nunca debe perderse por dedup del transporte (guard = CAS).
+    /// </summary>
+    private static string FailedStepOf(SagaEnvelope envelope)
+    {
+        try { return envelope.PayloadAs<StepFailedEvent>().Step; }
+        catch (Exception ex) when (ex is InvalidOperationException or JsonException)
+        {
+            return Guid.NewGuid().ToString("N");
+        }
     }
 
     /// <summary>DLQ aplicativa de una cola (D-0012): &lt;cola&gt;-dlq.fifo — inspeccionable con GET /admin/dlq.</summary>

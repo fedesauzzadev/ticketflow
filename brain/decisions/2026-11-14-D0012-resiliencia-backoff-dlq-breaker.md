@@ -70,3 +70,23 @@ asiento en el Catálogo sin mutar la compra ya terminal. Duplicados del `step-fa
 compensación caen en el guard CAS (compra ya FAILED) → ignorados, idempotente.
 
 Redrive automático de la DLQ sigue fuera de alcance (el AC no lo exige; D-0012 original).
+
+## Enmienda 2 (2026-11-15, fix post-QA F-V1-R2-01): dedup id del `step-failed`
+
+La enmienda 1 era inalcanzable por una vía del transporte que el QA adversarial halló en
+el retest (F-V1-R2-01): `SqsSagaTransport` enviaba TODO mensaje con
+`MessageDeduplicationId={type}:{purchase_id}`, y como el evento de fallo es siempre
+`type=step-failed`, el fallo de la compensación colisionaba con el `step-failed` previo
+de la MISMA compra dentro de la ventana de dedup de SQS FIFO → el publicador NO falla y
+el mensaje desaparece en silencio → con dos reglas persistent (p. ej. issue-tickets +
+release-seats, o authorize-payment + release-seats, PAN aprobado) la compra quedaba
+eterna en PAYMENT_APPROVED/SEATS_RESERVED — el mismo síntoma de F-V1-01, por otra capa.
+
+**Fix (SqsSagaTransport.SendAsync):** el `step-failed` añade el paso fallado
+(`StepFailedEvent.Step`) a su dedup id — dos fallos de pasos DISTINTOS de la misma compra
+llegan ambos a Órdenes; id único (guid) si el payload no lo da (un step-failed nunca debe
+perderse por dedup del transporte). El resto de los mensajes conserva
+`{type}:{purchase_id}`: el dedup natural de reenvíos intacto, y el reenvío idéntico del
+mismo step-failed sigue deduplicado. Duplicados que pasen (ventana ~5 min) caen en el
+guard CAS del process manager, como ya declaraba D-0006. Test de transporte
+(2 pasos distintos → ambos entregados; idéntico → 1) + 2 e2e de doble fallo.

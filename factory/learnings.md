@@ -149,3 +149,13 @@ Registro de bloqueos resueltos (causa → fix → lección). Anti-bloqueo: 3 int
 **Fix verificado:** BOM UTF-8 en todos los .ps1 (verificado por bytes EF BB BF; el edit de archivos EXISTENTES lo había dejado sin BOM — re-chequear tras editar) + reportes a archivo por .NET UTF-8 BOM. Evidencia S05 §6 legible byte a byte.
 
 **Lección:** en PS 5.1, texto no-ASCII que deba sobrevivir (evidencia, reportes) se escribe con .NET (`WriteAllText` + UTF8 BOM), nunca por pipe/redirect de consola; y todo .ps1 nuevo del repo lleva BOM. Los mensajes que SÍ cruzan consola van en ASCII puro.
+
+## L-015 — El dedup id de un mensaje de FALLO debe incluir el paso/attempt: {type}:{purchase} traga el segundo fallo de la misma compra (2026-11-15, Dev fix F-V1-R2-01)
+
+**Síntoma:** con DOS reglas persistent (issue-tickets + release-seats, o authorize-payment + release-seats, PAN aprobado) la compra quedaba eterna en PAYMENT_APPROVED/SEATS_RESERVED sin `failure_reason` — el mismo síntoma de F-V1-01 pero por el transporte: el `step-failed` de la compensación jamás llegaba a Órdenes aunque el publicador registraba el send OK.
+
+**Causa raíz:** `SqsSagaTransport` mandaba TODO mensaje con `MessageDeduplicationId={type}:{purchase_id}`. El evento de fallo es siempre `type=step-failed`, así que el segundo paso fallado de la MISMA compra colisionaba en la ventana de dedup de SQS FIFO y el mensaje se descartaba EN SILENCIO (el `SendMessage` no falla). El fix de aplicación de F-V1-01 era correcto pero inalcanzable por esta vía: dos capas, mismo síntoma.
+
+**Fix verificado (1 línea + helper):** el `step-failed` añade `StepFailedEvent.Step` a su dedup id (guid si el payload no lo da); el resto de los mensajes conserva `{type}:{purchase_id}` (dedup natural de reenvíos intacto; duplicados que pasen la ventana ~5 min caen en el guard CAS del process manager, como siempre declaró D-0006). Test de transporte (pasos distintos → ambos entregados; idéntico → 1) + 2 e2e de doble fallo. Control rojo: con el fix revertido los 3 tests fallan exactamente con el síntoma del QA.
+
+**Lección:** en una cola FIFO con dedup por id explícito, un mismo {tipo de mensaje} que puede ocurrir DOS veces por clave de agrupación (grupo=purchase) necesita en el dedup id TODO lo que distingue ocurrencias legítimas (paso, attempt, emission) — el dedup del transporte deduplica REENVÍOS, no ocurrencias. Y: "el publicador no falló" ≠ "el mensaje llegó"; cuando un handler aguanta un evento que nunca llega, mirar la capa de dedup ANTES de sospechar del consumidor.
