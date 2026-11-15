@@ -21,8 +21,13 @@
 ```
 [default]
 aws_access_key_id = EMULATOR71030A222FA2
-aws_secret_access_key = 6B17E762BF2D16DAFD7A337384398E17DFE23A59
+aws_secret_access_key = AWS_SECRET_ACCESS_KEY_REDACTED
 ```
+
+> Redacción F-V1-03 (2026-11-15): el valor literal del `aws_secret_access_key` fue
+> reemplazado por un placeholder. Era una credencial efímera del emulador local (muerta:
+> solo válida contra `localhost:9297` con la CA pineada de esa corrida, y el contenedor ya
+> la regeneró), pero disparaba secret-scanners y violaba NFR-2 literal.
 CA de esta corrida: `2026-11-13-emulator-ca.pem` (thumbprint `DA5942E22972F2DFB12FD734222BD11A9B6F91EF`).
 
 ## 3. Tabla de verificación por servicio (salida del probe)
