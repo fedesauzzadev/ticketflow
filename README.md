@@ -117,7 +117,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts\demo-resilience.ps1 
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts\stress-test.ps1 -N 20  # N compradores simultaneos, invariantes anti-oversell
 ```
 
-Ambos exit 0 si la demo pasa (distinto de 0 si falla cualquier check). `demo-idempotency` demuestra también el caso **agotado** cuando existe un evento con ≤ 7 asientos: para verlo, levanta el entorno con un evento chico antes de correr el script:
+Los 4 scripts terminan con exit 0 si la demo pasa (distinto de 0 si falla cualquier check). `demo-idempotency` demuestra también el caso **agotado** cuando existe un evento con ≤ 7 asientos: para verlo, levanta el entorno con un evento chico antes de correr el script:
 
 ```powershell
 $env:SEED_EVENTS = 'evt-mj-tribute-night|Michael Jackson Tribute Night|2027-03-12T21:00:00Z|120.50|500;evt-demo-soldout|Demo Sold Out|2027-06-01T20:00:00Z|10.00|1'
@@ -147,7 +147,9 @@ curl http://localhost:5082/admin/dlq                        # [{\"type\":\"autho
 Pasos inyectables: `reserve-seats` / `release-seats` (Catálogo) · `authorize-payment`
 (Pagos) · `issue-tickets` (Ticketing) · cualquier evento (Órdenes). Reintentos: 3 intentos
 por entrega con backoff 0,5/1 s; agotados → `<cola>-dlq.fifo` + compra `FAILED` con motivo
-(compensada si había reserva). El "downstream colgado" del breaker es `docker pause
+(compensada si había reserva; si la compensación misma se agota, la compra igual es
+terminal `FAILED` con el **asiento huérfano declarado en el motivo** y la entrega esperando
+en la DLQ del Catálogo). El "downstream colgado" del breaker es `docker pause
 aws-emulator` (3 fallos consecutivos → fail-fast 5 s → probe de recuperación).
 
 ## Estrés concurrente sin oversell (H-07)
@@ -196,7 +198,7 @@ Get-Content .artifacts\logs\orders.log -Wait
 
 ## Verificación
 
-- **Tests:** `dotnet test TicketFlow.sln` → **96/96** (unit + integración contra el emulador real; requiere el emulador arriba y `AWS_EMULATOR_*` en el env — `run-local.ps1` muestra cómo se extraen).
+- **Tests:** `dotnet test TicketFlow.sln` → **135/135** (unit + integración contra el emulador real; requiere el emulador arriba y `AWS_EMULATOR_*` en el env — `run-local.ps1` muestra cómo se extraen; el run reporta cobertura de los 4 `Core` y los 4 `.Api`, umbral ≥70%).
 - **Evidencias por slice** (comando + salida archivada): [S01 catálogo/cache](brain/evidence/2026-11-13-S01-n1001-verification.md) · [S02 saga+compensación](brain/evidence/2026-11-13-S02-n1002-verification.md) · [S03 idempotencia](brain/evidence/2026-11-14-S03-n1003-verification.md) · [S04 quickstart/demos/mediciones (este slice)](brain/evidence/2026-11-14-S04-n1004-verification.md) · [verificación del emulador](brain/evidence/2026-11-13-emulator-verification.md).
 
 ### Performance medida (NFR-5, local, 50 iteraciones tras warmup)

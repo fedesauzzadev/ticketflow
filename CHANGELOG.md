@@ -3,6 +3,39 @@
 Formato [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/),
 versionado [SemVer](https://semver.org/lang/es/).
 
+## [Unreleased]
+
+Entrega V1 (historias H-05..H-07 + H-10, slices S05..S08). Se marcará `0.2.0` al
+aprobar el gate de QA (retest post ronda de fixes).
+
+### Agregado
+
+- **Traza distribuida por compra (correlation-id = purchase_id)** (H-05): el id viaja
+  en el envelope de la saga por SQS y aparece en el log JSON de los 4 servicios;
+  `scripts\trace-purchase.ps1` imprime la traza cronológica y sale con error si
+  encuentra un PAN o CVV en los logs.
+- **Resiliencia observable bajo fallos inyectables** (H-06): reintentos con backoff
+  0,5/1 s por entrega (3 intentos), DLQ aplicativa inspeccionable (`GET /admin/dlq`
+  por servicio), circuit breaker propio fail-fast (3 fallos → OPEN 5 s → probe →
+  CLOSE) e inyección de fallos por `POST /admin/failure` (transient/persistent por
+  paso, sin editar código ni reiniciar). Toda compra termina en estado terminal con
+  motivo — incluida la compensación que falla (ver Corregido).
+- **Estrés concurrente sin oversell** (H-07): `stress-test.ps1` dispara N compradores
+  simultáneos sobre un evento con X asientos y verifica `min(N,X)` `TICKETS_ISSUED`,
+  cero oversell, disponibilidad nunca negativa y cierre `disponibilidad + emitidos == X`.
+- **Pulido de portfolio** (H-10): frontera Content-Type estricta (415 sin efectos,
+  charset tolerado), catálogo limpio de eventos de test, tests in-proc de los 4 `.Api`.
+- Suite de tests: 131/131 al cierre de V1; 135/135 tras la ronda de fixes.
+
+### Corregido (ronda post-QA V1, 2026-11-15)
+
+- **F-V1-01**: una compensación `release-seats` que agota sus reintentos ya no deja
+  la compra en `SEATS_RESERVED` para siempre — ahora es terminal `FAILED` con el
+  asiento huérfano declarado en el motivo y la entrega inspeccionable en la DLQ del
+  Catálogo (enmienda D-0012; unit + e2e con inyección persistent en release-seats).
+- **F-V1-04**: cobertura de los `.Api` reportada por el run estándar
+  (`dotnet test TicketFlow.sln`, umbral ≥70% los cubre: 91,7-94,8%).
+
 ## [0.1.0] - 2026-11-14
 
 Primera versión entregable del MVP (historias H-01..H-04, veredicto QA: SHIP).
