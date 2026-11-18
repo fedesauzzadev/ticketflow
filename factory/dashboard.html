@@ -37,10 +37,10 @@
 <body>
 <header>
   <h1>🏭 TicketFlow</h1>
-  <span class="sub">NSDD Software Factory · actualizado 2026-11-14 · División Backend Cloud (.NET + AWS local) · <span class="st-ship" style="border:none">QA: SHIP</span></span>
+  <span class="sub">NSDD Software Factory · actualizado 2026-11-18 · División Backend Cloud (.NET + AWS local) · <span class="st-ship" style="border:none">QA V2: SHIP</span></span>
 </header>
 <nav>
-  <button class="on" data-t="mvp">MVP</button>
+  <button class="on" data-t="mvp">Entregable</button>
   <button data-t="kanban">Kanban</button>
   <button data-t="roadmap">Roadmap</button>
   <button data-t="quality">Calidad</button>
@@ -49,48 +49,49 @@
 </nav>
 
 <section id="mvp" class="on">
-  <h2>Entregable V1 — listo para review G3</h2>
+  <h2>Entregable V2 — listo para review G4</h2>
   <div class="card"><ul>
-    <li class="li-ok"><b>V1 "producción creíble"</b> sobre el MVP shipped: trazas distribuidas por correlation-id (H-05), resiliencia con backoff+DLQ+circuit breaker+fallos inyectables (H-06), estrés concurrente sin oversell (H-07), pulido post-QA (H-10).</li>
-    <li class="li-ok"><b>Cómo probarlo</b>: <span class="kbd">scripts/trace-purchase.ps1</span> · <span class="kbd">scripts/demo-resilience.ps1</span> (15/15) · <span class="kbd">scripts/stress-test.ps1 -N 20 -X 5</span> (cero oversell) · inyección: <span class="kbd">POST /admin/failure</span>.</li>
-    <li class="li-ok"><b>Verificación</b>: 138/138 tests · breaker fail-fast 3-14 ms vs timeout 10 s · doble fallo persistente → terminal FAILED con huérfana declarada en DLQ (ronda 3 QA) · cobertura Core+.Api 81-95%.</li>
-    <li class="li-ok"><b>QA V1</b>: SHIP tras 3 rondas (NO-SHIP → fix compensación → NO-SHIP → fix dedup → SHIP). Hallazgo menor nuevo F-V1-R3-01 (flake demo con DLQ >10 entries) documentado.</li>
-    <li>Pendiente del gate: <span class="chip st-inprogress">G3 — aprobación + bump v0.2.0</span> (README/CHANGELOG/tag al aprobar).</li>
+    <li class="li-ok"><b>V2 "mantenible"</b> sobre v0.2.0: aprovisionamiento declarativo idempotente del emulador (H-08/IaC), gate de CI local en un comando + workflow GH Actions artefacto (H-08/CI, cierra F-V1-R3-01), hold de asientos con TTL + EXPIRED + endpoint de pago (H-09).</li>
+    <li class="li-ok"><b>Cómo probarlo</b>: <span class="kbd">scripts/provision.ps1</span> (from-scratch → verify 15/15 1:1) · <span class="kbd">scripts/ci.ps1</span> (5 etapas, culpable identificable) · <span class="kbd">scripts/demo-ttl.ps1</span> (hold→TTL→EXPIRED→re-compra) · <span class="kbd">scripts/ci.ps1 -Demos</span> (4 demos).</li>
+    <li class="li-ok"><b>Verificación</b>: 186/186 tests · gate 7/7 corridas exit 0 (QA retest) · IaC idempotente re-aplicado ×2 · hold sobrevive reinicio de los 4 servicios · pago al borde del TTL t−0,8 s → emitido / t+2,5 s → 409 sin doble liberación.</li>
+    <li class="li-ok"><b>QA V2</b>: SHIP en 2 rondas (NO-SHIP por gate flaky F-V2-01 → fix serialización de writers → SHIP). F-V2-01..05 todos cerrados con repros propios.</li>
+    <li>Pendiente del gate: <span class="chip st-inprogress">G4 — aprobación + bump v0.3.0</span> (README/CHANGELOG/tag al aprobar).</li>
   </ul></div>
 </section>
 
 <section id="kanban">
-  <h2>Historias y estado — MVP shipped + V1 en gate</h2>
+  <h2>Historias y estado — V0/V1 shipped, V2 verificada en gate</h2>
   <div class="grid">
     <div class="card"><h3>MVP v0.1.0 · H-01..H-04</h3><span class="chip st-ship">shipped</span><p>catálogo+cache · saga+compensación · idempotencia · README/demos — aprobado G2, tag v0.1.0</p></div>
-    <div class="card"><h3>N-2001 · H-05 Trazas distribuidas</h3><span class="chip st-verified">verified</span><span class="chip">M</span><ul><li>4/4 servicios mismo correlation-id ✓</li><li>compensación identificable ✓</li><li>compras paralelas sin mezcla ✓</li><li>0 PAN/CVV en logs ✓</li></ul></div>
-    <div class="card"><h3>N-2002 · H-06 Resiliencia</h3><span class="chip st-verified">verified</span><span class="chip">L</span><ul><li>backoff visible 510/1014 ms ✓</li><li>DLQ + FAILED + compensación ✓</li><li>breaker fail-fast 3-14 ms ✓</li><li>doble fallo → terminal + huérfana declarada ✓ (3 rondas)</li></ul></div>
-    <div class="card"><h3>N-2003 · H-07 Estrés concurrente</h3><span class="chip st-verified">verified</span><span class="chip">M</span><ul><li>N=20/X=5: 5 emitidos + 15 rechazos ✓</li><li>disponibilidad nunca negativa ✓</li><li>invariante 0+5==5 ✓</li><li>hostiles: exit 1/2 limpios ✓</li></ul></div>
-    <div class="card"><h3>N-2004 · H-10 Pulido post-QA</h3><span class="chip st-verified">verified</span><span class="chip">S</span><ul><li>415 content-type sin efectos ✓</li><li>GET /events sin it-* ✓</li><li>cobertura .Api 91-95% ✓</li></ul></div>
+    <div class="card"><h3>V1 v0.2.0 · H-05..H-07+H-10</h3><span class="chip st-ship">shipped</span><p>trazas · resiliencia · estrés · pulido — aprobado G3, tag v0.2.0</p></div>
+    <div class="card"><h3>N-3002 · H-08 IaC</h3><span class="chip st-verified">verified</span><span class="chip">S</span><ul><li>manifiesto infra/aws-local.json (6 tablas+4 colas+4 DLQs+bucket) ✓</li><li>provision --apply idempotente ×3 ✓</li><li>--verify 15/15 1:1 from-scratch ✓</li><li>guard manifiesto↔constantes pilla drift ✓</li></ul></div>
+    <div class="card"><h3>N-3001 · H-08 CI</h3><span class="chip st-verified">verified</span><span class="chip">M</span><ul><li>ci.ps1 5 etapas, rojo/verde con culpable ✓</li><li>gate 7/7 exit 0 (QA retest) ✓</li><li>workflow GH Actions artefacto + lint 9/9 ✓</li><li>F-V1-R3-01 cerrado: DLQ 23 entradas → demo 15/15 ✓</li></ul></div>
+    <div class="card"><h3>N-3003 · H-09 Hold TTL</h3><span class="chip st-verified">verified</span><span class="chip">L</span><ul><li>hold:true + expires_at + HOLD_TTL_SECONDS ✓</li><li>EXPIRED terminal + liberación exacta ✓</li><li>409 tardío sin doble liberación ✓</li><li>sobrevive reinicio 4 servicios ✓ · replay idempotente ✓</li></ul></div>
   </div>
 </section>
 
 <section id="roadmap">
   <h2>Entregas de valor</h2>
   <div class="timeline">
-    <div class="tl-item done"><b>V0 — MVP "drop de entradas demostrable"</b><p>H-01..H-04 completas y verificadas. QA final: SHIP. <span class="chip st-verified">entregado · en G2</span></p></div>
-    <div class="tl-item done"><b>V1 — "producción creíble"</b><p>trazas · resiliencia (backoff/DLQ/breaker/inyección) · estrés sin oversell · pulido F-04..F-07. QA SHIP ronda 3. <span class="chip st-verified">entregado · en G3</span></p></div>
-    <div class="tl-item"><b>V2 — "mantenible"</b><p>CI + IaC del entorno local + hold de asientos con TTL (H-08..H-09). Necesita: G3 aprobado. <span class="chip st-planned">en plan</span></p></div>
+    <div class="tl-item done"><b>V0 — MVP "drop de entradas demostrable"</b><p>H-01..H-04 completas y verificadas. QA final: SHIP. <span class="chip st-verified">entregado · G2</span></p></div>
+    <div class="tl-item done"><b>V1 — "producción creíble"</b><p>trazas · resiliencia (backoff/DLQ/breaker/inyección) · estrés sin oversell · pulido. QA SHIP ronda 3. <span class="chip st-verified">entregado · G3 · v0.2.0</span></p></div>
+    <div class="tl-item done"><b>V2 — "mantenible"</b><p>IaC declarativo · CI local + workflow artefacto · hold de asientos con TTL. QA SHIP ronda 2. <span class="chip st-verified">verificado · en G4</span></p></div>
   </div>
 </section>
 
 <section id="quality">
   <h2>Verificación y QA</h2>
   <div class="kpi">
-    <div class="card"><b>138/138</b><p>tests verdes (Core+.Api, umbral ≥70% en run estándar)</p></div>
-    <div class="card"><b>3-14 ms</b><p>fail-fast breaker vs timeout 10 s (docker pause ×2)</p></div>
-    <div class="card"><b>0</b><p>oversell en estrés N>X (4 escenarios + hostiles)</p></div>
-    <div class="card"><b>SHIP</b><p>QA V1 ronda 3 · MVP SHIP ronda 2</p></div>
+    <div class="card"><b>186/186</b><p>tests verdes (Core+.Api+Provision, umbral ≥70% en run estándar)</p></div>
+    <div class="card"><b>7/7</b><p>gate ci.ps1 exit 0 consecutivas (QA retest, ~90 s c/u)</p></div>
+    <div class="card"><b>0</b><p>oversell en estrés N>X (re-verificado V2, con holds mixtos)</p></div>
+    <div class="card"><b>SHIP</b><p>QA V2 ronda 2 · V1 ronda 3 · MVP ronda 2</p></div>
   </div>
   <div class="card"><ul>
-    <li>Rondas V1: NO-SHIP (compensación no toleraba fallo persistente) → fix + NO-SHIP (dedup tragaba 2º step-failed) → fix quirúrgico → SHIP. Ambos fixes verificados por QA con repros propios.</li>
-    <li>Gates de división 4/4 siguen verde · quickstart frío re-validado por QA · secrets: 0 (redacción de cred muerta incluida).</li>
-    <li>Riesgo residual: F-V1-R3-01 (flake demo si DLQ >10 entries en misma sesión — no afecta quickstart limpio), admin sin auth (localhost-only), techo de escritura del emulador.</li>
+    <li>Rondas V2: NO-SHIP (F-V2-01 Mayor — gate flaky 3/7: writers de estado saga compartidos entre collections paralelas) → fix (serialización del assembly Orders.Tests + -m:1) → SHIP con hammer 7/7 y mecanismo verificado en papel y en práctica.</li>
+    <li>Menores cerrados el mismo loop: workflow-lint ancla el run: real · provision -Verify sin crash en emulador vacío (15 FALTA + exit 1) · README al día · reason zombi advierte pago tardío.</li>
+    <li>Regresión V1/MVP verde en retest: suite ×2, 4×misma key = 1 compra, breaker+DLQ 15/15, traza 4/4, p95 24 ms/850 ms, stress PASS.</li>
+    <li>Riesgos residuales (documentados, no bloqueantes): ventana zombi &gt;2×TTL+30 s por diseño (D-0017, consistencia verificada) · gate descarta stdout de tests (trx propuesto si reaparece flake) · /admin sin auth localhost-only · techo de escritura del emulador.</li>
   </ul></div>
 </section>
 
@@ -98,24 +99,26 @@
   <h2>Bloqueos y aprendizajes</h2>
   <div class="grid">
     <div class="card"><h3>L-001 · SDK v4 → AWS real</h3><p>RegionEndpoint+ServiceURL manda tráfico a AWS real. Fix: ServiceURL+AuthenticationRegion + TLS pin.</p></div>
-    <div class="card"><h3>L-002 · SNS sin entrega</h3><p>SNS→SQS no entrega en el emulador. Fallback: evento interno; re-evaluar V1.</p></div>
+    <div class="card"><h3>L-002 · SNS sin entrega</h3><p>SNS→SQS no entrega en el emulador. Fallback: evento interno.</p></div>
     <div class="card"><h3>L-003 · pwsh ausente</h3><p>Solo PS 5.1: scripts y commands.run compatibles 5.1.</p></div>
     <div class="card"><h3>L-004 · emulator races</h3><p>Arranque del emulador con ensure tolerante (carreras de seed/credenciales).</p></div>
     <div class="card"><h3>L-005 · CS9107 base-worker</h3><p>Patrón base-worker para background services sin warning.</p></div>
-    <div class="card"><h3>L-006 · quoting PS 5.1</h3><p>curl -d con JSON en PS 5.1 quieera comillas → Invoke-RestMethod / -o NUL.</p></div>
+    <div class="card"><h3>L-006 · quoting PS 5.1</h3><p>curl -d con JSON en PS 5.1 quiebra comillas → Invoke-RestMethod / -o NUL.</p></div>
     <div class="card"><h3>L-007 · mensaje en limbo</h3><p>Consumidor muerto → mensaje SQS ~30 s invisible; handlers idempotentes lo toleran; DLQ formal V1.</p></div>
     <div class="card"><h3>L-008 · aislamiento de tests</h3><p>Estado persistente del emulador: keys/colas únicas por corrida; servicios abajo al testear.</p></div>
     <div class="card"><h3>L-009 · EAP Stop + docker</h3><p>stderr de nativos docker mata scripts PS 5.1 en camino frío → zona EAP Continue.</p></div>
     <div class="card"><h3>L-010 · medir p95 con HttpClient</h3><p>Cliente PS 5.1 ruidoso falsea latencias; medir con HttpClient reutilizado.</p></div>
     <div class="card"><h3>L-011 · retry SDK multiplica timeout</h3><p>MaxErrorRetry por defecto → 4×10 s. Fix: MaxErrorRetry=0, retry vive en la app.</p></div>
     <div class="card"><h3>L-012 · coverlet condicionado</h3><p>CollectCoverage solo corre con el target msbuild activo — umbral condicionado a env del emulador.</p></div>
+    <div class="card"><h3>L-013 · mojibake PS→UTF-8</h3><p>PS 5.1 Set-Content escribe ANSI y corrompe UTF-8; escribir con tools seguras o node fs utf8.</p></div>
+    <div class="card"><h3>L-014 · varianza de cobertura</h3><p>Catalog ±1 pts entre corridas — re-correr antes de declarar fallo de umbral.</p></div>
+    <div class="card"><h3>L-015 · dedup id de fallos</h3><p>El dedup id de un mensaje de FALLO debe incluir el paso/attempt, no solo {type}:{purchase} — SQS FIFO traga el segundo.</p></div>
   </div>
 </section>
 
 <section id="decisions">
   <h2>Decisiones (ADRs)</h2>
   <div class="grid">
-    <div class="card"><h3>D-0001 · init-brain defaults</h3><p>Modo no-interactivo: language es, commands por TL, modelos glm-5.3 tier.</p></div>
     <div class="card"><h3>D-0002 · Dominio TicketFlow</h3><p>Saga/idempotencia/cache emergen natural del dominio. Descartó pagos puros, delivery, URL shortener.</p></div>
     <div class="card"><h3>D-0003 · Stack .NET 10 + SDK v4</h3><p>Impuesto por Negocio. Reglas endpoint/TLS/timeout; enmienda post-F01: HttpClient.Timeout efectivo + MaxErrorRetry=0.</p></div>
     <div class="card"><h3>D-0004 · Saga por orquestación</h3><p>Process manager en Órdenes; choreography y Step Functions descartados.</p></div>
@@ -124,6 +127,17 @@
     <div class="card"><h3>D-0007 · Cache in-app</h3><p>ElastiCache sin data plane local → cache-aside in-app + invalidación explícita, X-Cache observable.</p></div>
     <div class="card"><h3>D-0008 · Estructura 13 csproj</h3><p>Api+Core por servicio + Shared.Infrastructure; 8 patrones mapeados en README.</p></div>
     <div class="card"><h3>D-0009 · Semántica 422 idempotencia</h3><p>Mismatch de key y asientos agotados → 422 accionable sin efectos parciales.</p></div>
+    <div class="card"><h3>D-0010 · G2 aprobado + git local</h3><p>MVP entregado + git init (identidad placeholder) + V1 aprobada.</p></div>
+    <div class="card"><h3>D-0011 · Trazas V1</h3><p>correlation_id == purchase_id + logs a archivos + trace-purchase.ps1.</p></div>
+    <div class="card"><h3>D-0012 · Resiliencia V1</h3><p>Backoff 0,5/1 s + DLQ aplicativo + step-failed + breaker propio + inyección /admin/failure (2 enmiendas post-QA).</p></div>
+    <div class="card"><h3>D-0013 · Reserva atómica F-05</h3><p>Decremento idempotente single-item (ADD + NOT contains).</p></div>
+    <div class="card"><h3>D-0014 · Estrés V1</h3><p>stress-test.ps1 PS 5.1 + HttpClient compartido, invariantes AC1..AC4.</p></div>
+    <div class="card"><h3>D-0015 · Ronda extra anti-bloqueo</h3><p>Fix quirúrgico F-V1-R2-01 (1 línea) autorizado por protocolo, disclosure completo en G3.</p></div>
+    <div class="card"><h3>D-0016 · G3 aprobado + V2</h3><p>V1 entregada + v0.2.0 + V2 aprobada para construcción.</p></div>
+    <div class="card"><h3>D-0017 · TTL por sweeper</h3><p>Probe: FIFO rechaza DelaySeconds (paridad AWS) → sweeper persistente en Órdenes (Scan CAS → EXPIRED + outbox), claim CAS resuelve race pago-vs-vencimiento.</p></div>
+    <div class="card"><h3>D-0018 · Contrato del hold</h3><p>"hold":true opcional + expires_at + POST /purchases/{id}/payment (202/409/404/400/200) + EXPIRED terminal.</p></div>
+    <div class="card"><h3>D-0019 · IaC manifiesto+tool</h3><p>infra/aws-local.json + TicketFlow.Provision (--apply/--verify); ensure defensivo de arranque se conserva; guard manifiesto↔constantes.</p></div>
+    <div class="card"><h3>D-0020 · CI local+workflow</h3><p>ci.ps1 (5 etapas, culpable primero) + workflow GH Actions invoca el mismo script (cero deriva) + PeekDlqAsync paginado (F-V1-R3-01).</p></div>
   </div>
 </section>
 

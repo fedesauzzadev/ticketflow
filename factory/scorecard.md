@@ -1,41 +1,42 @@
-# Scorecard — Review G3 (V1)
+# Scorecard — Review G4 (V2)
 
-**Fecha:** 2026-11-15 · **Corrida:** V1 completa (PO → TL G1 → S05..S08 → QA F5 3 rondas) · **Veredicto QA final V1: SHIP**
+**Fecha:** 2026-11-18 · **Corrida:** V2 completa (PO → TL probe+plan → S09..S11 → QA F6 2 rondas) · **Veredicto QA final V2: SHIP**
 
 ## Entrega
 
 | Métrica | Valor |
 |---|---|
-| Historias entregadas / planificadas | 4/4 (H-05, H-06, H-07, H-10) |
-| AC cumplidas | 18/18 (4+5+4+3+2 trazas extra QA) — todas con evidencia corrida dev+QA |
-| Nodos brain | N-2001..N-2004 verified (level full) |
-| Commits V1 | 5188147 → 03f3031 (9 commits, árbol limpio salvo views orquestador) |
+| Historias entregadas / planificadas | 2/2 (H-08 CI+IaC, H-09 hold TTL) + F-V1-R3-01 absorbido y cerrado |
+| AC cumplidas | 17/17 funcionales (9 H-08 + 8 H-09) — todas re-verificadas por QA con evidencia propia; AC1 de H-08 con asterisco en ronda 1, determinista tras fix (7/7) |
+| Nodos brain | N-3001..N-3003 verified (level full) |
+| Commits V2 | 050cdd4 → 858a9e0 (6 commits: plan, iac, ci, hold, qa r1, fix, qa r2) |
 
 ## Tests y performance
 
 | Métrica | Valor |
 |---|---|
-| Tests | 138/138 (131 + 7 de fixes; QA re-corrió suite completa en cada ronda) |
-| Cobertura | Core 80,2–93% + .Api 91,7–94,8% — umbral ≥70% en run estándar |
-| Breaker | fail-fast 3–14 ms vs timeout 10.015 ms (2 ciclos docker pause, recovery 40–57 ms) |
-| p95 spot QA | GET HIT 0,9 ms · saga 858 ms (en objetivo) |
-| Estrés | N=20/X=5 → 5+15, invariante 0+5==5, 20/20 terminales 14,7 s; hostiles exit 1/2 limpios |
+| Tests | 186/186 (138 base + 17 IaC + 2 DLQ + 29 hold) — QA re-corrió suite ×2 por ronda |
+| Gate CI | ci.ps1 7/7 exit 0 consecutivas en retest (ronda 1: 3/7 rojas — F-V2-01) |
+| Cobertura | umbral ≥70% Core+.Api+Provision en run estándar (Provision 86,4%) |
+| IaC | from-scratch 225 s → 15 recursos → verify 15/15 1:1 · re-apply ×2 idempotente · guard pilla manifiesto editado |
+| Hold TTL | pago t−0,8 s → TICKETS_ISSUED · t+2,5 s → 409 sin doble liberación · crash 4 servicios → EXPIRED tras restart · replay delta 0 · mini-stress 6 holds: disponibilidad exacta |
+| Estrés (regresión) | N=20/X=5 PASS, 0 oversell, cierre 0+5==5, 15,3 s |
 
-## QA adversarial V1
+## QA adversarial V2
 
 | Métrica | Valor |
 |---|---|
-| Rondas | 3 (NO-SHIP → fix → NO-SHIP → fix quirúrgico → SHIP) |
-| Hallazgos | Mayor F-V1-01 (compensación no toleraba persistent) + Mayor F-V1-R2-01 (dedup tragaba 2º step-failed) — ambos cerrados y verificados con repros propios de QA · Menores F-V1-02/03/04 cerrados · F-V1-R3-01 (flake demo DLQ>10) residual documentado |
-| Payloads hostiles | 24 contra /admin/* → 400/415, 0×5xx, procesos vivos |
-| Trazas | 4 compras propias: 4/4 servicios, cronológicas, 0 mezcla, 0 PAN/CVV |
-| Regresión MVP | demo-cache/demo-idempotency exit 0 · idempotencia concurrente 1 compra · quickstart frío ~1 min |
+| Rondas | 2 (NO-SHIP → fix → SHIP) |
+| Hallazgos | Mayor F-V2-01 (gate flaky: writers saga compartidos entre collections paralelas — 3/7 corridas) cerrado con serialización del assembly + -m:1, verificado hammer 7/7 y mecanismo en grep propio · Menores F-V2-02/03/04 + Info F-V2-05 todos cerrados en el mismo loop |
+| Hostiles | 18 contra endpoints nuevos (POST /purchases/{id}/payment, hold mal tipado) → 400/409/404 accionables, 0×5xx |
+| Regresión V1/MVP | suite ×2 186/186 · idempotencia 4×key = 1 compra · breaker+DLQ 15/15 con DLQ sucia (23 entries) · traza 4/4 · p95 24 ms/850 ms · demos 4/4 exit 0 |
 
 ## Bloqueos y aprendizajes
 
-L-013..L-015 nuevos (encoding PS 5.1 por pipe, connection limit serializaba POSTs, dedup id de mensajes de fallo debe incluir step). 0 bloqueos sin resolver. 1 ronda extra autorizada por anti-bloqueo (causa raíz 1 línea) — disclosure completo en G3.
+0 bloqueos sin resolver. 0 rondas extra de anti-bloqueo (el loop QA→dev→QA estándar de 1 ronda alcanzó). Sin learnings nuevos formales — el hallazgo F-V2-01 re-confirma L-008 (aislamiento de estado compartido en tests contra infra real) ahora a nivel de collection.
 
 ## Riesgo residual
 
-- F-V1-R3-01: demo-resilience AC2 flakea si DLQ payments >10 entries en la misma sesión del emulador (peek página 10) — quickstart limpio no afectado; fix opcional en V2.
-- Heredados: /admin sin auth (localhost-only, documentado), techo escritura emulador (~13 s/20 POSTs), estado en memoria del emulador (no reiniciar en demo).
+- Ventana zombi >2×TTL+30 s por diseño (D-0017): saga con pago aprobado y Pagos muerto mucho tiempo → EXPIRED con advertencia en el reason ("verificar en Pagos antes de reintentar"); consistencia verificada (sin ticket, sin oversell, disponibilidad exacta).
+- Gate descarta stdout de dotnet test (culpable = etapa, no test); trx persistente propuesto si un flake reaparece.
+- Heredados: /admin sin auth (localhost-only, documentado), techo escritura emulador.

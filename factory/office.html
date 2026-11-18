@@ -53,23 +53,22 @@
   <span class="sub">NSDD Software Factory · 2026-11-13</span>
 </header>
 
-<div class="banner">🎯 <b>División: Backend Cloud (.NET + AWS local) · síntesis</b> · 📍 <b>V1 completa · QA SHIP (3 rondas) — esperando review G3 del Negocio</b></div>
+<div class="banner">🎯 <b>División: Backend Cloud (.NET + AWS local) · síntesis</b> · 📍 <b>V2 completa · QA SHIP (2 rondas, gate 7/7) — esperando review G4 del Negocio</b></div>
 
 <h2>Planning — board de sprints</h2>
-<div class="sprint-strip"><span class="sprint-chip ok">S01..S04 — MVP shipped v0.1.0</span><span class="sprint-chip on">S05 — H-05 Trazas</span><span class="sprint-chip">S06 — H-06 Resiliencia</span><span class="sprint-chip">S07 — H-07 Estrés</span><span class="sprint-chip">S08 — H-10 Pulido + QA</span></div>
+<div class="sprint-strip"><span class="sprint-chip ok">S01..S04 — MVP shipped v0.1.0</span><span class="sprint-chip ok">S05..S08 — V1 shipped v0.2.0</span><span class="sprint-chip ok">S09 — IaC ✓</span><span class="sprint-chip ok">S10 — CI ✓</span><span class="sprint-chip ok">S11 — Hold TTL ✓</span></div>
 <div class="board">
   <div class="bcol"><h4>Backlog</h4></div>
   <div class="bcol"><h4>Planificado</h4></div>
   <div class="bcol"><h4>En curso</h4>
-    <div class="note n-busy"><span class="nid">G3</span>Review V1 con el Negocio — esperando aprobación + bump v0.2.0</div>
+    <div class="note n-busy"><span class="nid">G4</span>Review V2 con el Negocio — esperando aprobación + bump v0.3.0</div>
   </div>
   <div class="bcol"><h4>Implementado</h4></div>
   <div class="bcol"><h4>Verificado</h4>
-    <div class="note n-ver"><span class="nid">N-2001 · H-05</span>Trazas</div>
-    <div class="note n-ver"><span class="nid">N-2002 · H-06</span>Resiliencia · 3 rondas QA</div>
-    <div class="note n-ver"><span class="nid">N-2003 · H-07</span>Estrés</div>
-    <div class="note n-ver"><span class="nid">N-2004 · H-10</span>Pulido · 138/138</div>
-    <div class="note n-ship"><span class="nid">V1 · SHIP</span>QA ronda 3 · MVP v0.1.0 shipped</div>
+    <div class="note n-ver"><span class="nid">N-3001 · H-08</span>CI · gate 7/7 · F-V1-R3-01 cerrado</div>
+    <div class="note n-ver"><span class="nid">N-3002 · H-08</span>IaC · 15/15 1:1 idempotente</div>
+    <div class="note n-ver"><span class="nid">N-3003 · H-09</span>Hold TTL · EXPIRED · 186/186</div>
+    <div class="note n-ship"><span class="nid">V2 · SHIP</span>QA ronda 2 · V1 v0.2.0 shipped · MVP v0.1.0 shipped</div>
   </div>
 </div>
 
@@ -77,36 +76,36 @@
   <div class="desk waiting pulse">
     <span class="avatar">🧭</span>
     <h3>Orquestador</h3><span class="role">Fábrica</span>
-    <div class="task">Presentar G2 al Negocio</div>
-    <div class="bubble">MVP completo + QA SHIP. Te muestro evidencias y te pido aprobación — sin tu OK no sigo.</div>
-    <span class="chip st-waiting">esperando G2</span>
+    <div class="task">Presentar G4 al Negocio</div>
+    <div class="bubble">V2 completo + QA SHIP (IaC, CI con gate 7/7, hold TTL con EXPIRED). Te muestro evidencias y te pido aprobación — sin tu OK no sigo.</div>
+    <span class="chip st-waiting">esperando G4</span>
   </div>
   <div class="desk done">
     <span class="avatar">📋</span>
-    <h3>Product Owner</h3><span class="role">Fase 1 ✓</span>
-    <div class="task">Dominio + spec + backlog + roadmap</div>
-    <div class="bubble">Propuesta: TicketFlow (drops de entradas). Corte MVP H-01..H-04. Espero G2 para aprobación del Negocio.</div>
+    <h3>Product Owner</h3><span class="role">V2 ✓</span>
+    <div class="task">Specs V2: H-08 CI+IaC + H-09 hold TTL</div>
+    <div class="bubble">N-3001..N-3003 con ACs medibles; F-V1-R3-01 absorbido en H-08/AC5 para que el gate sea determinista también con emulador sucio.</div>
     <span class="chip st-done">hecho</span>
   </div>
   <div class="desk done">
     <span class="avatar">🏗️</span>
-    <h3>Tech Lead</h3><span class="role">Fase 2 ✓</span>
-    <div class="task">Emulador verificado + plan + 6 ADRs + sprints</div>
-    <div class="bubble">G1 ✓: plan ejecutable. DynamoDB/SQS-FIFO/S3 verificados con evidencia; SNS-entrega y Redis no → fallbacks (D-0006/D-0007).</div>
+    <h3>Tech Lead</h3><span class="role">V2 ✓</span>
+    <div class="task">Probe TTL + ADRs D-0017..D-0020 + plan §V2</div>
+    <div class="bubble">Probe propio contra el emulador: FIFO rechaza DelaySeconds (paridad AWS) → sweeper persistente. IaC y CI diseñados sin deriva local/nube.</div>
     <span class="chip st-done">hecho</span>
   </div>
   <div class="desk busy pulse">
     <span class="avatar">💻</span>
-    <h3>Dev</h3><span class="role">Fase 3 ✓</span>
-    <div class="task">4 slices: S01..S04 todos verificados</div>
-    <div class="bubble">MVP completo: 96/96 tests, p95 en objetivo, demos exit 0, corrida fría OK. Entrego a QA.</div>
+    <h3>Dev</h3><span class="role">V2 ✓</span>
+    <div class="task">3 slices: S09 IaC · S10 CI · S11 Hold TTL</div>
+    <div class="bubble">V2 completa + ronda fix F-V2-01..05 (gate determinista). 186/186, demos 4/4, quickstart from-scratch.</div>
     <span class="chip st-done">hecho</span>
   </div>
   <div class="desk done">
     <span class="avatar">🧪</span>
-    <h3>QA</h3><span class="role">Fase 4 ✓</span>
+    <h3>QA</h3><span class="role">F6 ✓</span>
     <div class="task">Veredicto final: SHIP (ronda 2)</div>
-    <div class="bubble">Fixes F-01/F-02/F-03 verificados con corridas propias. Deuda menor F-04..F-07 documentada para V1.</div>
+    <div class="bubble">Hammer 7/7 del gate + F-V2-01..05 cerrados con repros propios + regresión V1/MVP verde. Evidencia 100% propia.</div>
     <span class="chip st-done">hecho</span>
   </div>
 </div>
@@ -136,6 +135,16 @@
   <div><time>2026-11-14</time><span class="who">Orquestador</span><span>Dev loop 1/2: fix F-01 + F-02 + F-03 (umbral cobertura cableado). Luego retest QA y G2.</span></div>
   <div><time>2026-11-14</time><span class="who">Dev</span><span>Fixes: timeout 10 s efectivo (10,05 s medidos, antes >150 s) + LICENSE/CHANGELOG 0.1.0 + umbral cobertura mordiendo. 98/98 tests. L-011/L-012.</span></div>
   <div><time>2026-11-14</time><span class="who">QA</span><span>Ronda 2: VEREDICTO FINAL SHIP — 3/3 fixes verificados con evidencia propia, regresión verde, demo exit 0. 0 críticos/mayores abiertos.</span></div>
+  <div><time>2026-11-15</time><span class="who">Orquestador</span><span>G3 ✓ aprobado por el Negocio: V1 entregada + bump v0.2.0 + V2 aprobada. Encoding del brain reparado (244 chars index), validador: valid.</span></div>
+  <div><time>2026-11-15</time><span class="who">PO</span><span>V2 especificada: H-08 CI+IaC + H-09 hold TTL, nodos N-3001..N-3003 planned; F-V1-R3-01 absorbido en H-08/AC5.</span></div>
+  <div><time>2026-11-15</time><span class="who">Tech Lead</span><span>Probe TTL: el emulador rechaza DelaySeconds por mensaje en FIFO (paridad AWS real) → sweeper persistente. ADRs D-0017..D-0020 + plan §V2 (S09..S11).</span></div>
+  <div><time>2026-11-15</time><span class="who">Dev</span><span>S09 ✓ IaC: manifiesto aws-local.json + provision idempotente + verify 15/15 1:1 from-scratch (155/155).</span></div>
+  <div><time>2026-11-15</time><span class="who">Dev</span><span>S10 ✓ CI: ci.ps1 5 etapas con culpable + workflow GH Actions artefacto + PeekDlq paginado — F-V1-R3-01 cerrado con DLQ 13-23 entries sucias (157/157).</span></div>
+  <div><time>2026-11-15</time><span class="who">Dev</span><span>S11 ✓ Hold TTL: sweeper + POST /purchases/{id}/payment + EXPIRED terminal; sobrevive reinicio de 4 servicios; stress/demos/CI sin regresión (186/186).</span></div>
+  <div><time>2026-11-18</time><span class="who">QA</span><span>F6 ronda 1: NO-SHIP — F-V2-01 Mayor (gate flaky 3/7: writers saga compartidos entre collections paralelas) + 3 menores + 1 info. 17/17 ACs funcionales ✓.</span></div>
+  <div><time>2026-11-18</time><span class="who">Dev</span><span>Fix ronda 1: serialización del assembly Orders.Tests + -m:1 + lint anclado al run: real + null-guard Buckets + README al día + reason zombi con advertencia. Gate ×5 exit 0.</span></div>
+  <div><time>2026-11-18</time><span class="who">QA</span><span>F6 ronda 2: VEREDICTO FINAL SHIP — hammer 7/7 exit 0, F-V2-01..05 cerrados, regresión V1/MVP verde (186/186 ×2, p95 24 ms, stress PASS).</span></div>
+  <div><time>2026-11-18</time><span class="who">Orquestador</span><span>Vistas regeneradas (dashboard + scorecard G4 + office). G4 presentado al Negocio — la fábrica se detiene acá hasta aprobación.</span></div>
   <div><time>2026-11-14</time><span class="who">Orquestador</span><span>Fase 5 ✓: dashboard + scorecard regenerados. G2 presentado al Negocio — la fábrica se detiene acá hasta aprobación.</span></div>
 </div>
 
