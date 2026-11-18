@@ -1,5 +1,58 @@
 # QA Report V2 - TicketFlow (H-08 CI+IaC, H-09 hold TTL) - Fase F6 adversarial
+## RONDA 2 (retest post fix 1, commit 33006e9) - VEREDICTO FINAL: **SHIP**
 
+Fecha: 2026-11-18 - Retest acotado por QA adversarial (dev loop fix 1). Evidencia cruda 100%
+propia: brain/evidence/2026-11-18-qa-v2-r2-retest.md (logs en %TEMP%/opencode/qa-v2-r2/).
+Declaracion del dev verificada punto por punto; cero confianza previa.
+
+**SHIP.** El gate de CI - el hallazgo Mayor F-V2-01 - quedo determinista: 7/7 corridas del
+hammer en arbol limpio exit 0 (35/35 etapas OK; ronda 1: 3/7 fallaban), el mecanismo esta
+cerrado estructuralmente (DisableTestParallelization de Orders.Tests vigente en cualquier
+regimen + -m:1 en el gate; grep replicado: los otros proyectos no tocan purchases/colas saga)
+y empiricamente en el regimen README (suite x2 sin -m:1: 186/186). El riesgo residual
+declarado por el dev (3 rojos intermedios en Persistent_failure_on_release_seats) NO se
+reprodujo en ninguna corrida. Los 4 hallazgos menores/info cierran con repro propia.
+
+### Hammer del gate (7x ci.ps1, arbol limpio, servicios abajo)
+| corrida | exit | duracion | culpable |
+|---------|------|----------|----------|
+| 1 | 0 | 110,9 s | - |
+| 2 | 0 | 91,0 s | - |
+| 3 | 0 | 92,2 s | - |
+| 4 | 0 | 91,6 s | - |
+| 5 | 0 | 93,0 s | - |
+| 6 | 0 | 90,2 s | - |
+| 7 | 0 | 89,2 s | - |
+
+### Fixes puntuales
+| Hallazgo | Estado | Evidencia propia |
+|----------|--------|------------------|
+| F-V2-01 Mayor (gate flaky) | **CERRADO** | 7/7 hammer exit 0 + suite x2 sin -m:1 186/186 + analisis estructural del diff (grep: escritores saga = solo Orders.Tests, ahora serializado a nivel assembly) |
+| F-V2-02 Menor (lint no pilla drift) | **CERRADO** | drift run:->ci-v2.ps1 con comentarios intactos: FAIL + exit 1; sin drift 9/9 exit 0 |
+| F-V2-03 Menor (crash emulador vacio) | **CERRADO** | -Verify en emulador vacio: 15/15 FALTA (incluye el bucket), 0 crash, exit 1; apply exit 0 restaura + verify 15/15 OK |
+| F-V2-04 Menor (README stale) | **CERRADO** | l.282 186/186 (0 hits 155/155); l.81 las 4 demos; "Los 5 scripts" = 4 demos + stress (correcto) |
+| F-V2-05 Info (reason zombi sin advertencia) | **CERRADO** | reason advierte "(el pago puede haberse aprobado despues: verificar en Pagos antes de reintentar)"; unit assert dirigido PASS 1/1 (exit 1 del run = umbral cobertura con 1 test, esperado); corrio verde en las 9 suites de hoy |
+
+### Regresion minima: TODO VERDE
+Suite x2 186/186 exit 0 (regimen README sin -m:1: Payments 8 + Ticketing 5 + Provision 17 +
+Catalog 64 + Orders 92) - demo-ttl exit 0 11 PASS (hold/expiracion/liberacion/409/replay
+exactos) - demo-resilience exit 0 15/15 con DLQ sucia (F-V1-R3-01 sigue cerrado) -
+stress N=20 X=5 PASS (0 sin terminal, cierre 0+5=5==X).
+
+### Notas residuales (no bloqueantes)
+1. Observabilidad del gate: Invoke-Stage descarta el stdout de dotnet test - si la etapa tests
+   fallara se reporta el culpable (etapa) pero no el nombre del test. Exit contract intacto;
+   propuesta dev de trx persistente razonable si un flake reaparece.
+2. Ventana zombi (pago APPROVED sobre compra EXPIRED) sigue existiendo POR DISENO (D-0017) -
+   consistencia verificada en ronda 1; ahora el reason advierte (F-V2-05).
+3. Heredados declarados en ronda 1 sin cambios: /admin sin auth localhost-only, techo de
+   escritura del emulador.
+
+Todo lo demas de la ronda 1 (17 ACs funcionales, adversarial de hold, IaC, regresion V1)
+queda verificado como consto abajo - este retest no lo re-audito, solo confirmo que nada
+regreso. El veredicto NO-SHIP de la ronda 1 queda reemplazado por este.
+
+---
 Fecha: 2026-11-18 - Auditor: QA adversarial (factory) - Repo: HEAD 171638d (sin cambios por QA).
 Inputs: brain/nodes/N-300{1,2,3}.md (ACs), factory/backlog.md SS-V2, factory/plan.md SS-V2 (NFR-1..8
 vigentes), factory/qa-report-v1.md (formato/linea base), factory/spec.md.
