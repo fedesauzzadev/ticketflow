@@ -20,7 +20,7 @@ versionado [SemVer](https://semver.org/lang/es/).
   re-compra), incorporada a `ci.ps1 -Demos`. Suite: 186/186.
 - **CI local en un comando + workflow artefacto** (H-08 AC1..AC5): `scripts\ci.ps1` corre
   todo el gate (preflight → build 0 warnings → suite completa contra el emulador con umbral
-  de cobertura ≥70% de los Core → infra-verify → workflow-lint; `-Demos` agrega las 3 demos
+  de cobertura ≥70% de los Core → infra-verify → workflow-lint; `-Demos` agrega las 4 demos
   con cierre ordenado) — la primera etapa que falla es la culpable del `exit != 0`.
   `.github/workflows/ci.yml` está versionado como artefacto (repo sin remote) e invoca el
   MISMO script: cero deriva local/CI.
@@ -32,6 +32,27 @@ versionado [SemVer](https://semver.org/lang/es/).
   servicios conservan su ensure defensivo de arranque (D-0019). Suite: 155/155.
 
 ### Corregido
+
+- **F-V2-01** (QA V2, gate NO determinista — falsos rojos ~43% en árbol limpio): la tabla
+  `purchases`, el outbox y las colas de la saga del emulador son compartidas y las
+  collections de `Orders.Tests` corrían en paralelo — el sweep del e2e expiraba fixtures de
+  otros tests y los hosted services de las factories in-proc competían por los mensajes
+  (repro QA §2b). Ahora TODO el proyecto de tests de Órdenes corre serializado
+  (`DisableTestParallelization`; los otros proyectos tocan recursos disjuntos) y el assert
+  de conteo exacto del sweep sobre la tabla compartida se relaja a `>= 1` (el conteo exacto
+  no es determinista por diseño; la expiración de la compra propia sigue 100% asertada).
+  Gate `ci.ps1` ×5 consecutivas exit 0 en árbol limpio.
+- **F-V2-02**: `validate-workflow.ps1` matcheaba menciones de `ci.ps1` en comentarios — un
+  `run:` editado a otro script pasaba 9/9. La invariante central ahora exige la línea
+  `run:` real invocando `scripts/ci.ps1` (el drift del runner la rompe).
+- **F-V2-03**: `provision.ps1 -Verify` crasheaba (exit 2) en emulador vacío — el emulador
+  devuelve `Buckets=null` con 0 buckets. Null-guard: lista vacía ⇒ el bucket del manifiesto
+  se reporta `FALTA` y el verify termina exit 1 con el diff (contrato documentado).
+- **F-V2-04**: README stale — "155/155" → 186/186 y "-Demos corre las 3 demos" → 4.
+- **F-V2-05** (Info): el reason del tier de contingencia zombi ahora advierte que el pago
+  pudo aprobarse después ("verificar en Pagos antes de reintentar") — la ventana (pago
+  APPROVED tardío sin ticket sobre compra EXPIRED, consistencia por CAS) sigue declarada en
+  D-0017 §5.
 
 - **F-V1-R3-01** (QA V1 ronda 3): `GET /admin/dlq` / `PeekDlqAsync` enumeraba UNA página de
   10 y `demo-resilience.ps1` flakeaba cuando la DLQ de Pagos acumulaba >10 entradas de

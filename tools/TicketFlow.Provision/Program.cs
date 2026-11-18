@@ -205,8 +205,10 @@ public static class Program
         }
         problems += WarnExtras(o, "cola", manifest.Queues.Select(q => q.Name).ToList(), realQueues.Keys.ToList());
 
-        // Buckets: presencia (no tienen forma).
-        var realBuckets = (await s3.ListBucketsAsync(ct)).Buckets.Select(b => b.BucketName).ToList();
+        // Buckets: presencia (no tienen forma). El emulador devuelve Buckets=null con 0 buckets
+        // (F-V2-03): null-guard — lista vacía => los del manifiesto se reportan FALTA (exit 1).
+        var realBuckets = ((await s3.ListBucketsAsync(ct)).Buckets ?? [])
+            .Select(b => b.BucketName).ToList();
         o.WriteLine($"==> Buckets ({manifest.Buckets.Count} en manifiesto, {realBuckets.Count} reales):");
         foreach (var bucket in manifest.Buckets)
         {

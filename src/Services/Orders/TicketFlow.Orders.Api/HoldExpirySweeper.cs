@@ -72,7 +72,8 @@ public sealed class HoldExpirySweeper(
                 : holdTtlSeconds;
             var reason = isZombie
                 ? $"pago iniciado hace más de {2 * holdTtlSeconds + 30} s sin completarse — " +
-                  "reserva reclamada por contingencia"
+                  "reserva reclamada por contingencia (el pago puede haberse aprobado después: " +
+                  "verificar en Pagos antes de reintentar)"
                 : $"reserva expirada sin pago (TTL {ttlSeconds} s)";
             var won = isZombie
                 ? await purchases.TryExpireZombieAsync(candidate.PurchaseId, reason, zombieCutoff, ct)

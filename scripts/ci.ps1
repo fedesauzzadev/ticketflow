@@ -110,7 +110,10 @@ Invoke-Stage 'build' {
 # --- 3) tests: suite completa + umbral de cobertura >=70% Core (cableado al env) ------
 Invoke-Stage 'tests' {
     $eap = $ErrorActionPreference; $ErrorActionPreference = 'Continue'
-    dotnet test (Join-Path $root 'TicketFlow.sln') --nologo
+    # F-V2-01: -m:1 serializa los nodos de MSBuild (sin builds paralelos compitiendo por
+    # I/O con los testhosts). El aislamiento real del estado compartido del emulador es el
+    # DisableTestParallelization de Orders.Tests (tablas/colas de la saga = solo ese proyecto).
+    dotnet test (Join-Path $root 'TicketFlow.sln') --nologo -m:1
     $code = $LASTEXITCODE
     $ErrorActionPreference = $eap
     return ($code -eq 0)

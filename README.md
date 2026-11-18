@@ -78,7 +78,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts\provision.ps1 -Verif
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts\ci.ps1          # preflight -> build 0 warnings -> suite completa -> cobertura >=70% Core -> infra-verify -> workflow-lint
-powershell -NoProfile -ExecutionPolicy Bypass -File scripts\ci.ps1 -Demos  # ademas corre las 3 demos (levanta los servicios si no estan y cierra SOLO lo que levanto)
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\ci.ps1 -Demos  # ademas corre las 4 demos (cache, idempotency, resilience y ttl — levanta los servicios si no estan y cierra SOLO lo que levanto)
 ```
 
 La **primera etapa que falla es la culpable** del `exit != 0`: el pipeline se corta ahí y el
@@ -279,7 +279,7 @@ Get-Content .artifacts\logs\orders.log -Wait
 
 ## Verificación
 
-- **Tests:** `dotnet test TicketFlow.sln` → **155/155** (unit + integración contra el emulador real; requiere el emulador arriba y `AWS_EMULATOR_*` en el env — `run-local.ps1` muestra cómo se extraen; el run reporta cobertura de los 4 `Core` y los 4 `.Api`, umbral ≥70% — la tool Provision con umbral propio 86%).
+- **Tests:** `dotnet test TicketFlow.sln` → **186/186** (unit + integración contra el emulador real; requiere el emulador arriba y `AWS_EMULATOR_*` en el env — `run-local.ps1` muestra cómo se extraen; el run reporta cobertura de los 4 `Core` y los 4 `.Api`, umbral ≥70% — la tool Provision con umbral propio 86%).
 - **Evidencias por slice** (comando + salida archivada): [S01 catálogo/cache](brain/evidence/2026-11-13-S01-n1001-verification.md) · [S02 saga+compensación](brain/evidence/2026-11-13-S02-n1002-verification.md) · [S03 idempotencia](brain/evidence/2026-11-14-S03-n1003-verification.md) · [S04 quickstart/demos/mediciones (este slice)](brain/evidence/2026-11-14-S04-n1004-verification.md) · [verificación del emulador](brain/evidence/2026-11-13-emulator-verification.md).
 
 ### Performance medida (NFR-5, local, 50 iteraciones tras warmup)

@@ -589,7 +589,10 @@ public sealed class SagaEndToEndTests
             await Task.Delay(200, ct);
         var sweeper = new HoldExpirySweeper(h.Purchases, h.Outbox, 5,
             NullLogger<HoldExpirySweeper>.Instance);
-        Assert.Equal(1, await sweeper.SweepOnceAsync(DateTimeOffset.UtcNow, ct));
+        // Tabla compartida y persistente: el sweep puede expirar además holds vencidos que
+        // dejaron tests/runs anteriores (F-V2-01). El conteo exacto no es determinista; lo
+        // verificable es que ESTA compra expiró — lo aseguran los asserts de abajo.
+        Assert.True(await sweeper.SweepOnceAsync(DateTimeOffset.UtcNow, ct) >= 1);
         var expired = await PumpUntilAsync(h, id, p => p?.Status == PurchaseStatus.EXPIRED, 20, ct);
         Assert.Contains("reserva expirada sin pago", expired.FailureReason); // terminal con motivo
         Assert.Equal(initial, (await h.CatalogRepo.GetByIdAsync(eventId, ct))!.Available);

@@ -32,8 +32,10 @@ if (Test-Path $Path) {
     Check "checkout del repo (uses: actions/checkout@)" (Has 'actions/checkout@')
     Check "SDK .NET 10 (uses: actions/setup-dotnet@)" (Has 'actions/setup-dotnet@')
     Check "dotnet-version 10.x" (Has "dotnet-version:\s*'?10")
-    # La invarianta central (cero deriva): el workflow invoca el MISMO gate local.
-    Check "invoca el MISMO gate local (scripts/ci.ps1)" (Has 'scripts[/\\]ci\.ps1')
+    # La invarianta central (cero deriva): el workflow invoca el MISMO gate local. Anclada a
+    # la línea run: REAL del step (F-V2-02: un match global se tragaba un `run:` editado y
+    # validado por menciones en comentarios).
+    Check "invoca el MISMO gate local (línea run: -> scripts/ci.ps1)" (Has '^\s*run:\s*.*scripts[/\\]ci\.ps1')
     Check "indentación solo con espacios (YAML sin tabs)" (-not (Has "`t"))
 }
 

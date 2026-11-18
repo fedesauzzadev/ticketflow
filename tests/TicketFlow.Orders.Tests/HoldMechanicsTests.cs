@@ -251,6 +251,9 @@ public sealed class HoldMechanicsTests
         var expired = purchases.Store[id];
         Assert.Equal(PurchaseStatus.EXPIRED, expired.Status);
         Assert.Contains("contingencia", expired.FailureReason); // terminal con motivo (F-V1-01)
+        // F-V2-05: la ventana zombi deja un pago APPROVED tardío sin ticket — el reason
+        // advierte verificar Pagos antes de reintentar la compra.
+        Assert.Contains("verificar en Pagos", expired.FailureReason);
         Assert.Single(outbox.Enqueued); // release-seats: el asiento vuelve al pool
     }
 
