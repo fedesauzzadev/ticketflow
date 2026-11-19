@@ -6,7 +6,7 @@
 TicketFlow: portfolio backend de venta de entradas para eventos de alta demanda — microservicios .NET 10 orquestados (saga), idempotencia observable, cache hit/miss observable, todo sobre servicios AWS del emulador oficial local (:9297, HTTPS+SigV4, CA propia). Dominio = PROPUESTA aprobada en G2. Plan técnico Fase 2: factory/plan.md.
 
 ## Active slice
-**v2 GATE QA F6 (2026-11-18): NO-SHIP por F-V2-01 → ronda fix 1 cerrada el mismo día** (F-V2-01..05 cerrados: gate x5 exit 0, suite 186/186 x2, rojo/verde intacto — evidencia 2026-11-18-fix-f-v2-round1.md; N-3001 re-verificado; pendiente retest QA acotado para SHIP). QA F6 original: factory/qa-report-v2.md. Antes: v2 en desarrollo, S09-S11 verificados 2026-11-15 — N-3003 verified (evidencia 2026-11-15-S11-n3003-verification.md: sweeper D-0017 + contrato D-0018, suite 186/186, demo-ttl x2 exit 0, AC7 reinicio PASS, stress+demos+ci.ps1 -Demos exit 0). S09 (N-3002) y S10 (N-3001) verificados. Plan: factory/plan.md §V2 + ADRs D-0017..D-0020. **v1 COMPLETA Y APROBADA G3 (2026-11-15)** — N-2001..N-2004 shipped, tag v0.2.0, QA V1 SHIP ronda 3 (factory/qa-report-v1.md, F-V1-R2-01 cerrado). V0/mvp: N-1001..N-1004 shipped (tag v0.1.0), QA F4 SHIP 2 rondas.
+**CORRIDA CERRADA (G4 aprobado 2026-11-19)** — V0 (N-1001..4) + V1 (N-2001..4) + V2 (N-3001..3) todos shipped; tags v0.1.0 / v0.2.0 / v0.3.0; QA adversarial SHIP en las 3 entregas (F4 r2, F5 r3, F6 r2). 11/11 nodos shipped, 21 ADRs (D-0001..D-0021), 15 learnings. Portfolio final: README + CHANGELOG + factory/ + brain/evidence/.
 
 ## Nodes
 | ID | Title | Type | Size | Status | Key links |
@@ -19,9 +19,9 @@ TicketFlow: portfolio backend de venta de entradas para eventos de alta demanda 
 | N-2002 | Resiliencia observable bajo fallos inyectables (backoff, DLQ, circuit breaker) | feature | L | shipped | H-06 · depends_on N-1002 · slice v1 · absorbe F-05 (AC5) · → D-0012 (+enmiendas F-V1-01 y F-V1-R2-01), D-0013 · evidencia 2026-11-14-S06 + 2026-11-15-fix-f-v1-01 + fix-2026-11-15-f-v1-r2-01 + 2026-11-15-qa-v1-r3-retest (QA R3 SHIP: AC2 re-verificado en doble fallo) |
 | N-2003 | Estrés concurrente sin oversell con resultado terminal garantizado | feature | M | shipped | H-07 · depends_on N-1002 · slice v1 · → D-0014 · evidencia 2026-11-14-S07 |
 | N-2004 | Pulido post-QA: frontera Content-Type, catálogo limpio, cobertura .Api | feature | S | shipped | H-10 · depends_on N-1003 · slice v1 · absorbe F-04/F-06/F-07 · evidencia 2026-11-14-S08 |
-| N-3001 | CI local (build+tests+cobertura en un comando) + workflow GH Actions artefacto | feature | M | verified (re-verificado 2026-11-18 ronda fix 1: F-V2-01/02/04 cerrados, gate x5 exit 0) | H-08 (AC1..AC5) · depends_on N-2004 · slice v2 · absorbe F-V1-R3-01 · → D-0020 · evidencia 2026-11-18-fix-f-v2-round1 + 2026-11-15-S10 |
-| N-3002 | IaC: aprovisionamiento declarativo e idempotente de tablas, colas y bucket | feature | S | verified | H-08 (AC6..AC9) · depends_on N-1002 · slice v2 · → D-0019 · evidencia 2026-11-15-S09 |
-| N-3003 | Hold de asientos con TTL: expiración automática de reservas no pagadas | feature | L | verified | H-09 (AC1..AC8) · depends_on N-2002 · slice v2 · → D-0017 (sweeper persistente 5 s + claim CAS + tier zombi), D-0018 (hold:true + POST /purchases/{id}/payment + EXPIRED) · evidencia 2026-11-15-S11 |
+| N-3001 | CI local (build+tests+cobertura en un comando) + workflow GH Actions artefacto | feature | M | shipped | H-08 (AC1..AC5) · depends_on N-2004 · slice v2 · absorbe F-V1-R3-01 · → D-0020 · evidencia 2026-11-18-fix-f-v2-round1 + 2026-11-15-S10 + 2026-11-18-qa-v2-r2-retest (hammer 7/7) |
+| N-3002 | IaC: aprovisionamiento declarativo e idempotente de tablas, colas y bucket | feature | S | shipped | H-08 (AC6..AC9) · depends_on N-1002 · slice v2 · → D-0019 · evidencia 2026-11-15-S09 |
+| N-3003 | Hold de asientos con TTL: expiración automática de reservas no pagadas | feature | L | shipped | H-09 (AC1..AC8) · depends_on N-2002 · slice v2 · → D-0017 (sweeper persistente 5 s + claim CAS + tier zombi), D-0018 (hold:true + POST /purchases/{id}/payment + EXPIRED) · evidencia 2026-11-15-S11 |
 
 ## Decisions
 | ID | Título | Reversibility |
@@ -46,6 +46,7 @@ TicketFlow: portfolio backend de venta de entradas para eventos de alta demanda 
 | D-0018 | contrato del hold V2: body hold:true + expires_at observable + POST /purchases/{id}/payment (202/409/200) + EXPIRED terminal | medium |
 | D-0019 | IaC V2: manifiesto infra/aws-local.json + tools/TicketFlow.Provision (--apply/--verify) + ensure defensivo SE CONSERVA + guard test manifiesto↔código | easy |
 | D-0020 | CI V2: scripts/ci.ps1 (etapas con culpable + -Demos) + workflow GH Actions invoca el mismo script + paginación de DLQ (F-V1-R3-01) | easy |
+| D-0021 | G4 aprobado: V2 entregada + v0.3.0 + cierre de corrida | easy |
 
 ## Evidence
 - 2026-11-18-fix-f-v2-round1.md — Ronda fix 1 post-QA V2 (dev): F-V2-01 serialización Orders.Tests + sweep >=1 + -m:1 (gate x5 exit 0, suite 186/186 x2, rojo/verde); F-V2-02 lint anclado al run:; F-V2-03 null-guard buckets (15/15 FALTA exit 1); F-V2-04 README; F-V2-05 reason zombi con advertencia. Nota residual: 3 rojos intermedios sin capture del texto (Invoke-Stage descarta stdout de dotnet).

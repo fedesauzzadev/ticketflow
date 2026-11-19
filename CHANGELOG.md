@@ -3,7 +3,10 @@
 Formato [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/),
 versionado [SemVer](https://semver.org/lang/es/).
 
-## [Unreleased]
+## [0.3.0] - 2026-11-19
+
+Entrega V2 (historias H-08..H-09, slices S09..S11). QA F6: SHIP (2 rondas,
+2026-11-18) — aprobado por el Negocio en G4. Cierre de corrida: V0/V1/V2 completos.
 
 ### Agregado
 
