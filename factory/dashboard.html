@@ -37,7 +37,7 @@
 <body>
 <header>
   <h1>🏭 TicketFlow</h1>
-  <span class="sub">NSDD Software Factory · actualizado 2026-11-18 · División Backend Cloud (.NET + AWS local) · <span class="st-ship" style="border:none">QA V2: SHIP</span></span>
+  <span class="sub">NSDD Software Factory · cerrada 2026-11-19 · División Backend Cloud (.NET + AWS local) · <span class="st-ship" style="border:none">Corrida completa: v0.1.0 → v0.3.0 · QA SHIP ×3</span></span>
 </header>
 <nav>
   <button class="on" data-t="mvp">Entregable</button>
@@ -49,24 +49,24 @@
 </nav>
 
 <section id="mvp" class="on">
-  <h2>Entregable V2 — listo para review G4</h2>
+  <h2>Portfolio final — corrida cerrada (G4 aprobado)</h2>
   <div class="card"><ul>
-    <li class="li-ok"><b>V2 "mantenible"</b> sobre v0.2.0: aprovisionamiento declarativo idempotente del emulador (H-08/IaC), gate de CI local en un comando + workflow GH Actions artefacto (H-08/CI, cierra F-V1-R3-01), hold de asientos con TTL + EXPIRED + endpoint de pago (H-09).</li>
-    <li class="li-ok"><b>Cómo probarlo</b>: <span class="kbd">scripts/provision.ps1</span> (from-scratch → verify 15/15 1:1) · <span class="kbd">scripts/ci.ps1</span> (5 etapas, culpable identificable) · <span class="kbd">scripts/demo-ttl.ps1</span> (hold→TTL→EXPIRED→re-compra) · <span class="kbd">scripts/ci.ps1 -Demos</span> (4 demos).</li>
-    <li class="li-ok"><b>Verificación</b>: 186/186 tests · gate 7/7 corridas exit 0 (QA retest) · IaC idempotente re-aplicado ×2 · hold sobrevive reinicio de los 4 servicios · pago al borde del TTL t−0,8 s → emitido / t+2,5 s → 409 sin doble liberación.</li>
-    <li class="li-ok"><b>QA V2</b>: SHIP en 2 rondas (NO-SHIP por gate flaky F-V2-01 → fix serialización de writers → SHIP). F-V2-01..05 todos cerrados con repros propios.</li>
-    <li>Pendiente del gate: <span class="chip st-inprogress">G4 — aprobación + bump v0.3.0</span> (README/CHANGELOG/tag al aprobar).</li>
+    <li class="li-ok"><b>TicketFlow v0.3.0</b>: venta de entradas con saga orquestada (4 microservicios .NET 10, Clean Architecture), idempotencia, cache observable, resiliencia (backoff/DLQ/circuit breaker/fallos inyectables), trazas distribuidas, hold de asientos con TTL — todo sobre el emulador local de AWS (cero nube, cero costo).</li>
+    <li class="li-ok"><b>Mantenible</b>: infra declarativa versionada (<span class="kbd">infra/aws-local.json</span> + <span class="kbd">scripts/provision.ps1</span>) y gate de CI de un comando (<span class="kbd">scripts/ci.ps1</span>, 7/7 verde) + workflow GH Actions artefacto.</li>
+    <li class="li-ok"><b>Demos ejecutables</b>: <span class="kbd">demo-cache</span> · <span class="kbd">demo-idempotency</span> · <span class="kbd">demo-resilience</span> · <span class="kbd">demo-ttl</span> · <span class="kbd">stress-test</span> — todas exit 0, reproducibles from-scratch.</li>
+    <li class="li-ok"><b>Verificación</b>: 186/186 tests · 0 oversell en estrés · p95 24 ms/850 ms · 21 ADRs · 15 learnings · evidencia cruda en brain/evidence/.</li>
+    <li class="li-ok"><b>Gates</b>: G2/G3/G4 aprobados por el Negocio · QA adversarial SHIP en las 3 entregas (2/3/2 rondas).</li>
   </ul></div>
 </section>
 
 <section id="kanban">
-  <h2>Historias y estado — V0/V1 shipped, V2 verificada en gate</h2>
+  <h2>Historias y estado — todas shipped</h2>
   <div class="grid">
     <div class="card"><h3>MVP v0.1.0 · H-01..H-04</h3><span class="chip st-ship">shipped</span><p>catálogo+cache · saga+compensación · idempotencia · README/demos — aprobado G2, tag v0.1.0</p></div>
     <div class="card"><h3>V1 v0.2.0 · H-05..H-07+H-10</h3><span class="chip st-ship">shipped</span><p>trazas · resiliencia · estrés · pulido — aprobado G3, tag v0.2.0</p></div>
-    <div class="card"><h3>N-3002 · H-08 IaC</h3><span class="chip st-verified">verified</span><span class="chip">S</span><ul><li>manifiesto infra/aws-local.json (6 tablas+4 colas+4 DLQs+bucket) ✓</li><li>provision --apply idempotente ×3 ✓</li><li>--verify 15/15 1:1 from-scratch ✓</li><li>guard manifiesto↔constantes pilla drift ✓</li></ul></div>
-    <div class="card"><h3>N-3001 · H-08 CI</h3><span class="chip st-verified">verified</span><span class="chip">M</span><ul><li>ci.ps1 5 etapas, rojo/verde con culpable ✓</li><li>gate 7/7 exit 0 (QA retest) ✓</li><li>workflow GH Actions artefacto + lint 9/9 ✓</li><li>F-V1-R3-01 cerrado: DLQ 23 entradas → demo 15/15 ✓</li></ul></div>
-    <div class="card"><h3>N-3003 · H-09 Hold TTL</h3><span class="chip st-verified">verified</span><span class="chip">L</span><ul><li>hold:true + expires_at + HOLD_TTL_SECONDS ✓</li><li>EXPIRED terminal + liberación exacta ✓</li><li>409 tardío sin doble liberación ✓</li><li>sobrevive reinicio 4 servicios ✓ · replay idempotente ✓</li></ul></div>
+    <div class="card"><h3>N-3002 · H-08 IaC</h3><span class="chip st-ship">shipped</span><span class="chip">S</span><ul><li>manifiesto infra/aws-local.json (6 tablas+4 colas+4 DLQs+bucket) ✓</li><li>provision --apply idempotente ×3 ✓</li><li>--verify 15/15 1:1 from-scratch ✓</li><li>guard manifiesto↔constantes pilla drift ✓</li></ul></div>
+    <div class="card"><h3>N-3001 · H-08 CI</h3><span class="chip st-ship">shipped</span><span class="chip">M</span><ul><li>ci.ps1 5 etapas, rojo/verde con culpable ✓</li><li>gate 7/7 exit 0 (QA retest) ✓</li><li>workflow GH Actions artefacto + lint 9/9 ✓</li><li>F-V1-R3-01 cerrado: DLQ 23 entradas → demo 15/15 ✓</li></ul></div>
+    <div class="card"><h3>N-3003 · H-09 Hold TTL</h3><span class="chip st-ship">shipped</span><span class="chip">L</span><ul><li>hold:true + expires_at + HOLD_TTL_SECONDS ✓</li><li>EXPIRED terminal + liberación exacta ✓</li><li>409 tardío sin doble liberación ✓</li><li>sobrevive reinicio 4 servicios ✓ · replay idempotente ✓</li></ul></div>
   </div>
 </section>
 
@@ -75,7 +75,7 @@
   <div class="timeline">
     <div class="tl-item done"><b>V0 — MVP "drop de entradas demostrable"</b><p>H-01..H-04 completas y verificadas. QA final: SHIP. <span class="chip st-verified">entregado · G2</span></p></div>
     <div class="tl-item done"><b>V1 — "producción creíble"</b><p>trazas · resiliencia (backoff/DLQ/breaker/inyección) · estrés sin oversell · pulido. QA SHIP ronda 3. <span class="chip st-verified">entregado · G3 · v0.2.0</span></p></div>
-    <div class="tl-item done"><b>V2 — "mantenible"</b><p>IaC declarativo · CI local + workflow artefacto · hold de asientos con TTL. QA SHIP ronda 2. <span class="chip st-verified">verificado · en G4</span></p></div>
+    <div class="tl-item done"><b>V2 — "mantenible"</b><p>IaC declarativo · CI local + workflow artefacto · hold de asientos con TTL. QA SHIP ronda 2. <span class="chip st-verified">entregado · G4 · v0.3.0 · cierre</span></p></div>
   </div>
 </section>
 

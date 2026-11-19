@@ -1,6 +1,6 @@
 # Scorecard — Review G4 (V2)
 
-**Fecha:** 2026-11-18 · **Corrida:** V2 completa (PO → TL probe+plan → S09..S11 → QA F6 2 rondas) · **Veredicto QA final V2: SHIP**
+**Fecha:** 2026-11-18 · **Corrida:** V2 completa (PO → TL probe+plan → S09..S11 → QA F6 2 rondas) · **Veredicto QA final V2: SHIP** · **G4 aprobado por el Negocio: 2026-11-19 — cierre de corrida, bump v0.3.0**
 
 ## Entrega
 
