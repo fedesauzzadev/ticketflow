@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>TicketFlow — cómo está integrado AWS (emulador local)</title>
+<style>
+  :root{--bg:#0f1117;--card:#181b24;--line:#262b38;--tx:#e8eaf0;--mut:#8b93a7;--acc:#5b8cff;--ok:#3fb96a;--warn:#e0a93e;--bad:#e05c5c;--pur:#a78bfa;--orange:#ff9d54}
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:var(--bg);color:var(--tx);font:15px/1.6 system-ui,sans-serif;padding:28px;max-width:1100px;margin:0 auto}
+  h1{font-size:24px;margin-bottom:4px} h2{font-size:17px;margin:36px 0 12px;color:var(--acc)}
+  .sub{color:var(--mut);font-size:13px;margin-bottom:10px}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:16px;margin-bottom:12px}
+  .chip{display:inline-block;padding:2px 10px;border-radius:99px;font-size:11px;margin:2px 6px 2px 0;border:1px solid var(--line);color:var(--mut)}
+  .ok{color:var(--ok);border-color:var(--ok)} .acc{color:var(--acc);border-color:var(--acc)}
+  .pur{color:var(--pur);border-color:var(--pur)} .org{color:var(--orange);border-color:var(--orange)}
+  .mono{font-family:ui-monospace,Consolas,monospace;font-size:12.5px}
+  /* mapa principal */
+  .map{display:grid;grid-template-columns:1fr;gap:14px}
+  .row{display:grid;gap:10px;align-items:stretch}
+  .row.svc{grid-template-columns:repeat(auto-fit,minmax(240px,1fr))}
+  .awsbox{border:2px dashed var(--orange);border-radius:14px;padding:14px;background:#191510}
+  .awsbox h3{color:var(--orange);font-size:15px;margin-bottom:8px}
+  .svc-card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:13px}
+  .svc-card b{font-size:14px} .svc-card .port{color:var(--mut);font-size:11px}
+  .svc-card ul{padding-left:16px;margin-top:6px}
+  .svc-card li{font-size:12.5px;color:var(--mut);margin-bottom:3px}
+  .res{color:#c8d0e0}
+  .arrowline{text-align:center;color:var(--mut);font-size:20px;line-height:1;padding:2px 0}
+  .sec{display:flex;gap:10px;flex-wrap:wrap;justify-content:center;margin:6px 0}
+  .mini{border:1px solid var(--line);background:#1c2436;border-radius:8px;padding:6px 12px;font-size:12px;text-align:center}
+  .mini b{display:block;font-size:12.5px} .mini span{color:var(--mut);font-size:11px}
+  table{border-collapse:collapse;width:100%;font-size:12.5px}
+  th,td{border:1px solid var(--line);padding:6px 10px;text-align:left}
+  th{color:var(--acc);font-weight:600;background:#161a26}
+  td .mono{font-size:12px}
+  .flow{display:grid;gap:8px}
+  .fstep{display:grid;grid-template-columns:34px 1fr;gap:12px;align-items:start}
+  .fn{width:26px;height:26px;border-radius:50%;background:#1c2436;border:1px solid var(--orange);color:var(--orange);display:flex;align-items:center;justify-content:center;font-weight:700;font-size:13px;margin-top:2px}
+  pre{background:#0d0f14;border:1px solid var(--line);border-radius:8px;padding:12px 14px;overflow-x:auto;font-size:12.5px;color:#c8d0e0}
+  .why{color:var(--mut);font-size:13px;font-style:italic}
+  .gl b{color:var(--acc)}
+  .kbd{background:#0d0f14;border:1px solid var(--line);border-radius:6px;padding:1px 7px;font-family:monospace;font-size:12px;color:var(--ok)}
+</style>
+</head>
+<body>
+<h1>🔧 Cómo está integrado AWS (todo local, en el emulador)</h1>
+<p class="sub">TicketFlow v0.3.0 · las mismas APIs de DynamoDB, SQS y S3 contra un contenedor Docker · cero nube real, cero costo, cero secrets en el repo</p>
+
+<h2>1 · El mapa completo</h2>
+<div class="map">
+
+  <div class="card" style="text-align:center">
+    <div class="sec">
+      <div class="mini" style="border-color:var(--acc)"><b>🧑 Cliente / demos</b><span>PowerShell · HTTP</span></div>
+    </div>
+    <div class="arrowline">↓&nbsp;&nbsp;HTTP + JSON (Idempotency-Key, hold, pago)</div>
+  </div>
+
+  <div class="row svc">
+    <div class="svc-card" style="border-color:var(--acc)">
+      <b>📋 Órdenes</b> <span class="port">:5081 — el orquestador</span>
+      <ul>
+        <li>🗃️ <span class="res mono">purchases</span> — estado de cada compra + holds (el sweeper barre acá)</li>
+        <li>🗃️ <span class="res mono">orders_idempotency</span> — claim condicional de la Idempotency-Key</li>
+        <li>🗃️ <span class="res mono">orders_outbox</span> — outbox: escribe el mensaje y la tabla en el mismo paso</li>
+        <li>📮 publica a las 3 colas de comandos · consume <span class="res mono">orders-events</span></li>
+      </ul>
+    </div>
+    <div class="svc-card">
+      <b>📚 Catálogo</b> <span class="port">:5080 — asientos</span>
+      <ul>
+        <li>🗃️ <span class="res mono">catalog_events</span> — eventos + disponibilidad (decremento atómico)</li>
+        <li>⚡ cache in-app (HybridCache) — nada de AWS, invalidada al reservar</li>
+        <li>📮 consume <span class="res mono">catalog-commands</span> (reservar / liberar)</li>
+      </ul>
+    </div>
+    <div class="svc-card">
+      <b>💳 Pagos</b> <span class="port">:5082 — autoriza</span>
+      <ul>
+        <li>🗃️ <span class="res mono">payments</span> — evidencia de cada intento (monto, PAN enmascarado)</li>
+        <li>📮 consume <span class="res mono">payments-commands</span> (authorize-payment)</li>
+        <li>🧯 fallos inyectables por <span class="res mono">POST /admin/failure</span> (transient/persistent)</li>
+      </ul>
+    </div>
+    <div class="svc-card">
+      <b>🎟️ Ticketing</b> <span class="port">:5083 — emite</span>
+      <ul>
+        <li>🗃️ <span class="res mono">tickets</span> — la entrada emitida</li>
+        <li>🪣 <span class="res mono">S3 ticketflow-tickets</span> — el QR de cada entrada</li>
+        <li>📮 consume <span class="res mono">ticketing-commands</span> (issue-tickets)</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="arrowline">↓&nbsp;&nbsp;toda la IO por AWS SDK v4 · HTTPS + firma SigV4</div>
+
+  <div class="awsbox">
+    <h3>🧪 EMULADOR AWS — contenedor Docker <span class="mono">aws-emulator</span> · <span class="mono">https://127.0.0.1:9297</span></h3>
+    <div class="sec">
+      <div class="mini"><b>🗃️ DynamoDB</b><span>6 tablas (estado)</span></div>
+      <div class="mini"><b>📮 SQS FIFO</b><span>8 colas (4 + 4 DLQ)</span></div>
+      <div class="mini"><b>🪣 S3</b><span>1 bucket (QRs)</span></div>
+    </div>
+    <p style="font-size:12.5px;color:var(--mut);margin-top:8px;text-align:center">
+      CA autofirmada regenerada en cada corrida (<span class="mono">docker cp → .secrets/ca.pem</span>, gitignored) ·
+      credenciales efímeras extraídas del contenedor · verificación de que el endpoint es loopback al arrancar
+    </p>
+  </div>
+</div>
+
+<h2>2 · Las 3 reglas que evitan hablar con AWS de verdad</h2>
+<div class="card">
+  <table>
+    <tr><th>Regla</th><th>Qué hace</th><th>Por qué</th></tr>
+    <tr><td><span class="mono">ServiceURL</span> + <span class="mono">AuthenticationRegion</span></td><td>apunta el SDK a <span class="mono">127.0.0.1:9297</span> en vez de a la región</td><td>con <span class="mono">RegionEndpoint</span> el SDK v4 manda tráfico a AWS real (learning L-001)</td></tr>
+    <tr><td>CA pineada</td><td>solo confía en el certificado de ESTA corrida</td><td>el emulador re-genera su CA al arrancar; nada de "confiar en todo"</td></tr>
+    <tr><td>Check loopback + creds efímeras</td><td>rechaza arrancar si el endpoint no es local; creds nuevas por corrida</td><td>aunque algo se filtrara, son credenciales muertas fuera del contenedor</td></tr>
+  </table>
+  <p class="why" style="margin-top:8px">Además: timeout 10 s efectivo y <span class="mono">MaxErrorRetry=0</span> — los reintentos viven en la aplicación (backoff propio), no multiplicados dentro del SDK.</p>
+</div>
+
+<h2>3 · Una compra, mensaje por mensaje</h2>
+<div class="flow">
+  <div class="card fstep"><div class="fn">1</div><div><b>POST /purchases</b> (Órdenes) — valida, claim de la Idempotency-Key en <span class="mono">orders_idempotency</span>, crea la compra en <span class="mono">purchases</span> y el comando <b>reserve-seats</b> en el <span class="mono">orders_outbox</span>.</div></div>
+  <div class="card fstep"><div class="fn">2</div><div><b>Outbox → SQS</b> — el publicador lee el outbox y manda el mensaje a <span class="mono">ticketflow-catalog-commands.fifo</span> (FIFO: orden garantizada + dedup).</div></div>
+  <div class="card fstep"><div class="fn">3</div><div><b>Catálogo reserva</b> — decremento atómico del asiento en <span class="mono">catalog_events</span> (sin oversell aunque lleguen 20 iguales), invalida su cache, responde el evento por <span class="mono">orders-events.fifo</span>.</div></div>
+  <div class="card fstep"><div class="fn">4</div><div><b>El process manager avanza</b> (Órdenes) — con la reserva OK manda <b>authorize-payment</b> a Pagos. Rechazado → compensación: <b>release-seats</b> devuelve el asiento y la compra queda FAILED con motivo.</div></div>
+  <div class="card fstep"><div class="fn">5</div><div><b>Pagos autoriza</b> — deja evidencia en <span class="mono">payments</span>. Si el paso se queda sin reintentos (3 × backoff 0,5/1 s), el mensaje cae a la <b>DLQ</b> <span class="mono">payments-commands-dlq.fifo</span> y la compra igual termina con motivo.</div></div>
+  <div class="card fstep"><div class="fn">6</div><div><b>Ticketing emite</b> — crea la entrada en <span class="mono">tickets</span> y guarda el QR en el bucket <span class="mono">ticketflow-tickets</span>. Compra <span class="chip ok">TICKETS_ISSUED</span>.</div></div>
+  <div class="card fstep"><div class="fn">⏳</div><div><b>Y si era un hold</b> — sin pago, el sweeper de Órdenes encuentra el vencimiento en <span class="mono">purchases</span>, marca <span class="chip org">EXPIRED</span> y manda el mismo <b>release-seats</b> de compensación.</div></div>
+</div>
+
+<h2>4 · Inventario exacto (el manifiesto IaC)</h2>
+<div class="card">
+  <table>
+    <tr><th>Recurso</th><th>Tipo</th><th>Quién lo usa</th></tr>
+    <tr><td class="mono">purchases</td><td>DynamoDB</td><td>Órdenes — estado de saga, holds, sweeper</td></tr>
+    <tr><td class="mono">orders_outbox</td><td>DynamoDB</td><td>Órdenes — patrón outbox</td></tr>
+    <tr><td class="mono">orders_idempotency</td><td>DynamoDB</td><td>Órdenes — claim de Idempotency-Key</td></tr>
+    <tr><td class="mono">catalog_events</td><td>DynamoDB</td><td>Catálogo — eventos + disponibilidad</td></tr>
+    <tr><td class="mono">payments</td><td>DynamoDB</td><td>Pagos — evidencia de intentos</td></tr>
+    <tr><td class="mono">tickets</td><td>DynamoDB</td><td>Ticketing — entradas emitidas</td></tr>
+    <tr><td class="mono">ticketflow-{catalog,payments,ticketing}-commands.fifo</td><td>SQS FIFO</td><td>comandos de la saga (reservar/pagar/emitir)</td></tr>
+    <tr><td class="mono">ticketflow-orders-events.fifo</td><td>SQS FIFO</td><td>respuestas hacia el orquestador</td></tr>
+    <tr><td class="mono">…-commands-dlq.fifo ×3 + orders-events-dlq.fifo</td><td>SQS FIFO</td><td>mensajes muertos inspeccionables (GET /admin/dlq)</td></tr>
+    <tr><td class="mono">ticketflow-tickets</td><td>S3</td><td>Ticketing — QR de cada entrada</td></tr>
+  </table>
+  <p class="why" style="margin-top:8px">Todo esto vive declarado en <span class="mono">infra/aws-local.json</span> y se crea con <span class="mono">scripts\provision.ps1</span> (idempotente, <span class="mono">-Verify</span> compara 1:1 contra el emulador).</p>
+</div>
+
+<h2>5 · Levantar todo (3 comandos)</h2>
+<div class="card">
+  <pre>docker compose up -d                          <span style="color:#8b93a7"># 1) el "AWS" local (emulador :9297)</span>
+powershell -File scripts\provision.ps1       <span style="color:#8b93a7"># 2) (opcional) crea los 15 recursos desde el manifiesto</span>
+powershell -File scripts\run-local.ps1       <span style="color:#8b93a7"># 3) build + 4 servicios + CA/creds de esta corrida</span></pre>
+  <p class="why">Requisito único: Docker Desktop. Sin cuenta AWS, sin tarjetas, sin internet.</p>
+</div>
+
+<p class="sub" style="margin-top:26px">TicketFlow v0.3.0 · integración verificada contra el emulador real en cada corrida (probe F2, IaC verify 15/15, suite 186/186) · docs/aws-architecture.html</p>
+</body>
+</html>

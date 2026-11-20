@@ -49,6 +49,8 @@ Detalle completo (servicios, tablas, saga paso a paso, ADRs): [docs/architecture
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts\run-local.ps1
 ```
 
+Alternativa con compose para el emulador: `docker compose up -d` primero (equivalente al paso 1, con `restart: unless-stopped`); `run-local.ps1` detecta el contenedor por su nombre y sigue desde el paso 2. Mapa visual de la integración AWS: `docs/aws-architecture.html` · corridas de demo guardadas: `docs/demo-runs.md` · guía visual del producto: `docs/demo-walkthrough.html`.
+
 Eso: (1) levanta el contenedor `aws-emulator` si está caído (lo buildea si no existe), (2) extrae las credenciales y la CA **de esa corrida** del emulador (se regeneran en cada arranque — nada hardcodeado; caen en `.secrets/`, que está gitignored), (3) buildea la solución (0 warnings) y (4) levanta los 4 servicios:
 
 | Servicio | URL | Prueba |

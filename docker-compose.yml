@@ -1,0 +1,19 @@
+# TicketFlow — todo el "AWS" local en un comando.
+# Requiere Docker Desktop. El resto (CA, credenciales, build y los 4 servicios)
+# lo hace scripts\run-local.ps1, que detecta este contenedor por su nombre.
+#
+#   docker compose up -d          # levanta el emulador en https://localhost:9297
+#   powershell -File scripts\run-local.ps1   # luego: servicios + demos listos
+#
+# Nota: los 4 servicios .NET no van en compose — corren como procesos locales
+# manejados por run-local.ps1 (logs en .artifacts\logs\). Containerizarlos seria
+# trabajo futuro (Dockerfiles por servicio + CA pin dentro de cada imagen).
+
+services:
+  aws-emulator:
+    build: ./aws-emulator
+    image: aws-emulator:verified
+    container_name: aws-emulator
+    ports:
+      - "9297:9297"
+    restart: unless-stopped
