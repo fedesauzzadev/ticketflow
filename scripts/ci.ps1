@@ -63,7 +63,10 @@ function Invoke-Stage([string]$name, [scriptblock]$body) {
 
 function Test-Http([int]$port, [string]$probe) {
     # NUL = dispositivo nulo de Windows (PS 5.1: -o $null pasa un argumento vacío y rompe curl).
-    curl.exe -s -o NUL -m 2 "http://localhost:$port$probe" 2>$null
+    # Portabilidad (CI en ubuntu/pwsh): curl.exe/NUL son de Windows; en Linux son curl y /dev/null.
+    $nullDev = if ($IsWindows -or -not $IsLinux) { 'NUL' } else { '/dev/null' }
+    $curl = if (Get-Command curl.exe -ErrorAction SilentlyContinue) { 'curl.exe' } else { 'curl' }
+    & $curl -s -o $nullDev -m 2 "http://localhost:$port$probe" 2>$null
     return ($LASTEXITCODE -eq 0)
 }
 
