@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>TicketFlow — el producto, paso a paso</title>
+<style>
+  :root{--bg:#0f1117;--card:#181b24;--line:#262b38;--tx:#e8eaf0;--mut:#8b93a7;--acc:#5b8cff;--ok:#3fb96a;--warn:#e0a93e;--bad:#e05c5c;--purple:#a78bfa}
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:var(--bg);color:var(--tx);font:15px/1.6 system-ui,sans-serif;padding:28px;max-width:1080px;margin:0 auto}
+  h1{font-size:24px;margin-bottom:4px} h2{font-size:17px;margin:34px 0 12px;color:var(--acc)}
+  .sub{color:var(--mut);font-size:13px;margin-bottom:8px}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:16px;margin-bottom:12px}
+  .chip{display:inline-block;padding:2px 10px;border-radius:99px;font-size:11px;margin:2px 6px 2px 0;border:1px solid var(--line);color:var(--mut)}
+  .ok{color:var(--ok);border-color:var(--ok)} .warn{color:var(--warn);border-color:var(--warn)}
+  .bad{color:var(--bad);border-color:var(--bad)} .acc{color:var(--acc);border-color:var(--acc)} .pur{color:var(--purple);border-color:var(--purple)}
+  .mono{font-family:ui-monospace,Consolas,monospace;font-size:12.5px}
+  pre{background:#0d0f14;border:1px solid var(--line);border-radius:8px;padding:12px 14px;overflow-x:auto;font-size:12.5px;line-height:1.55;color:#c8d0e0}
+  pre .p{color:var(--ok);font-weight:600} pre .m{color:var(--mut)} pre .k{color:var(--purple)} pre .h{color:var(--acc)}
+  .flow{display:grid;grid-template-columns:1fr;gap:10px}
+  .step{display:grid;grid-template-columns:44px 1fr;gap:14px;align-items:start}
+  .n{width:34px;height:34px;border-radius:50%;background:#1c2436;border:1px solid var(--acc);color:var(--acc);display:flex;align-items:center;justify-content:center;font-weight:700;font-size:14px;margin-top:2px}
+  .n.red{border-color:var(--bad);color:var(--bad)} .n.org{border-color:var(--warn);color:var(--warn)} .n.grn{border-color:var(--ok);color:var(--ok)}
+  .arch{display:grid;gap:10px;margin:10px 0}
+  .arch .card{margin-bottom:0;padding:12px 14px}
+  .svc{display:flex;gap:10px;flex-wrap:wrap;justify-content:center;margin:8px 0}
+  .box{border:1px solid var(--line);background:#1c2436;border-radius:10px;padding:10px 14px;text-align:center;min-width:120px}
+  .box b{display:block;font-size:13px} .box span{font-size:11px;color:var(--mut)}
+  .arrow{color:var(--mut);font-size:18px;align-self:center}
+  .grid2{display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:12px}
+  table{border-collapse:collapse;width:100%;font-size:13px}
+  th,td{border:1px solid var(--line);padding:7px 10px;text-align:left}
+  th{color:var(--acc);font-weight:600;background:#161a26}
+  .why{color:var(--mut);font-size:13px;font-style:italic}
+  .gl b{color:var(--acc)}
+  .kbd{background:#0d0f14;border:1px solid var(--line);border-radius:6px;padding:1px 7px;font-family:monospace;font-size:12px;color:var(--ok)}
+</style>
+</head>
+<body>
+<h1>🎫 TicketFlow — el producto, paso a paso</h1>
+<p class="sub">Guía visual para aprender · corrida real del 2026-11-19 (demo-ttl 11/11 PASS) · todo sobre el emulador local de AWS, cero nube</p>
+
+<h2>1 · Qué es (en 30 segundos)</h2>
+<div class="card">
+  <p>Un sitio de venta de entradas <b>dividido en 4 servicios</b> que se hablan por mensajes, en vez de un solo programa monolítico. Comprar una entrada dispara una <b>saga</b>: una secuencia de pasos coordinados donde cada servicio hace su parte y, si algo falla, <b>se deshace lo hecho</b> (compensación).</p>
+  <p class="why">Por qué importa: así escala un sistema real — cada servicio vive, muere y falla por separado sin romper la compra.</p>
+</div>
+<div class="arch">
+  <div class="card">
+    <div class="svc">
+      <div class="box"><b>🧑 Tú</b><span>HTTP (los demos)</span></div>
+      <div class="arrow">→</div>
+      <div class="box" style="border-color:var(--acc)"><b>📋 Órdenes</b><span>:5081 · orquesta la saga</span></div>
+    </div>
+    <div class="svc">
+      <div class="arrow">↳ mensajes por cola FIFO →</div>
+      <div class="box"><b>📚 Catálogo</b><span>:5080 · asientos + cache</span></div>
+      <div class="box"><b>💳 Pagos</b><span>:5082 · aprueba/rechaza</span></div>
+      <div class="box"><b>🎟️ Ticketing</b><span>:5083 · emite + QR a S3</span></div>
+    </div>
+    <div class="svc">
+      <div class="box"><b>🗄️ DynamoDB</b><span>estado (compras, asientos)</span></div>
+      <div class="box"><b>📮 SQS FIFO</b><span>mensajes ordenados</span></div>
+      <div class="box"><b>🪣 S3</b><span>entradas con QR</span></div>
+      <div class="box" style="border-color:var(--purple)"><b>🧪 Emulador AWS</b><span>todo local, puerto 9297</span></div>
+    </div>
+  </div>
+</div>
+
+<h2>2 · El flujo de una compra (la saga)</h2>
+<div class="flow">
+  <div class="card step"><div class="n">1</div><div><b>Reservar</b> — Órdenes pide a Catálogo que baje la disponibilidad y guarde el asiento para tu compra. <span class="chip acc">SEATS_RESERVED</span></div></div>
+  <div class="card step"><div class="n">2</div><div><b>Cobrar</b> — Pagos valida la tarjeta. Aprobada → sigue; rechazada → <b>compensación</b>: Catálogo devuelve el asiento. <span class="chip ok">APPROVED</span> <span class="chip bad">DECLINED → libera asiento</span></div></div>
+  <div class="card step"><div class="n">3</div><div><b>Emitir</b> — Ticketing genera la entrada con QR y la guarda en S3. <span class="chip ok">TICKETS_ISSUED</span> (éxito final)</div></div>
+  <div class="card step"><div class="n org">⏳</div><div><b>Nuevo en V2 — Hold con TTL</b>: podés reservar <b>sin pagar todavía</b>. El asiento queda retenido con hora de vencimiento (<span class="mono">expires_at</span>). Si no pagás, un <b>sweeper</b> (tarea que barre cada 5 s) lo expira solo. <span class="chip warn">hold</span> <span class="chip warn">EXPIRED</span></div></div>
+</div>
+
+<h2>3 · La corrida real de hoy — demo-ttl (11/11 PASS)</h2>
+<p class="sub">Esto NO es un dibujo: es la salida literal del <span class="mono">scripts\demo-ttl.ps1</span> contra los 4 servicios corriendo, con los valores de esta corrida.</p>
+
+<div class="card step"><div class="n">1</div><div>
+  <b>Retener sin pagar</b> — POST con <span class="mono">"hold": true</span>. La compra queda en <span class="chip warn">SEATS_RESERVED</span> (no terminal), con vencimiento observable, y la disponibilidad baja de a uno.
+  <pre><span class="m">--- 1) retencion: POST /purchases con "hold": true ---</span>
+[PASS] retencion aceptada (201) - HTTP 201: {<span class="k">"purchase_id"</span>:"<span class="h">pur-553ea60e…</span>","status":"PENDING"}
+[PASS] estado SEATS_RESERVED (no terminal) - estado: SEATS_RESERVED
+[PASS] expiracion observable (expires_at) - expires_at: <span class="h">2026-11-20T00:24:26+00:00</span>
+[PASS] asiento retenido (disponibilidad -1) - disponibilidad: <span class="h">500 -&gt; 499</span></pre>
+  <p class="why">Fijate: el sistema te MUESTRA la hora de vencimiento. Nada de caja negra.</p>
+</div></div>
+
+<div class="card step"><div class="n org">2</div><div>
+  <b>El plazo vence, nadie pagó</b> — el demo espera los 90 s del TTL. El sweeper pasa la compra a <span class="chip bad">EXPIRED</span> (estado final, con motivo) y <b>devuelve el asiento automáticamente</b>.
+  <pre><span class="m">--- 2)+3) vencimiento (TTL del servicio) y liberacion: esperando hasta 00:24:26 UTC ---</span>
+[PASS] estado terminal EXPIRED - estado: EXPIRED
+[PASS] terminal con motivo - reason: <span class="h">reserva expirada sin pago (TTL 90 s)</span>
+[PASS] asiento liberado (disponibilidad restaurada) - disponibilidad: <span class="h">499 -&gt; 500</span></pre>
+  <p class="why">"Terminal con motivo" = la compra nunca queda colgada sin explicación. Regla de oro del proyecto.</p>
+</div></div>
+
+<div class="card step"><div class="n red">3</div><div>
+  <b>Llegás tarde con el pago</b> — POST al endpoint de pago después del vencimiento → rechazo limpio, y el asiento <b>no se libera dos veces</b>.
+  <pre><span class="m">--- 4) pago tardio: POST /purchases/{id}/payment tras el TTL ---</span>
+[PASS] rechazo 409 hold-expired - HTTP 409 type: hold-expired
+        {<span class="k">"type"</span>:"hold-expired","title":"Hold expired","status":409,"detail":"La reserva expiró antes de completar el pago."}
+[PASS] sin segunda liberacion (delta 0) - disponibilidad: <span class="h">500 -&gt; 500</span></pre>
+</div></div>
+
+<div class="card step"><div class="n">4</div><div>
+  <b>Repetís la misma compra (idempotencia)</b> — misma <span class="mono">Idempotency-Key</span> → te devuelve <b>la misma</b> compra en EXPIRED, sin crear nada nuevo ni tocar la disponibilidad.
+  <pre><span class="m">--- 5) replay del POST original (misma Idempotency-Key) ---</span>
+[PASS] replay devuelve la misma compra EXPIRED - HTTP 200: pur-553ea60e… EXPIRED
+[PASS] replay sin efectos (delta 0) - disponibilidad: <span class="h">500 -&gt; 500</span></pre>
+  <p class="why">Idempotencia = reintentar no duplica. Lo que evita cobrar dos veces si tu navegador reenvía el formulario.</p>
+</div></div>
+
+<div class="card step"><div class="n grn">5</div><div>
+  <b>Otro comprador compra el asiento liberado</b> — el asiento vuelve a estar disponible; una compra nueva con otra key lo emite completo, y el cierre cuadra: asiento inicial − ticket emitido.
+  <pre><span class="m">--- 6) re-compra del asiento liberado (comprador nuevo, key distinta) ---</span>
+[PASS] re-compra aceptada (201) - HTTP 201
+[PASS] re-compra TICKETS_ISSUED - estado: TICKETS_ISSUED tickets: <span class="h">tkt-e163ff4a…</span>
+[PASS] disponibilidad final == inicial - 1 - disponibilidad: <span class="h">499 (inicial 500 - 1 emitido)</span>
+
+<span class="p">RESULTADO: TODO PASS (retencion -&gt; vencimiento -&gt; liberacion -&gt; pago tardio 409 -&gt; replay -&gt; re-compra)</span></pre>
+</div></div>
+
+<h2>4 · Los otros demos (todos exit 0, reproducibles)</h2>
+<div class="grid2">
+  <div class="card"><b>⚡ demo-cache</b><p class="why">La misma consulta dos veces: la primera lee la base (<span class="chip">X-Cache: MISS</span>), la segunda sale de memoria (<span class="chip ok">HIT</span>, ~1 ms). Además: al reservar, la cache se invalida sola para no vender asientos fantasma.</p></div>
+  <div class="card"><b>🔁 demo-idempotency</b><p class="why">4 POST iguales con la misma key al mismo tiempo → 1 sola compra. Sin key repetida con otro cuerpo → error 422 claro.</p></div>
+  <div class="card"><b>🧯 demo-resilience</b><p class="why">Inyecta fallos en vivo (un endpoint admin): el sistema reintenta con espera creciente, y si algo no tiene remedio, corta rápido (circuit breaker) y deja el mensaje en una cola de inspección (DLQ) — la compra termina SIEMPRE en estado final con motivo.</p></div>
+  <div class="card"><b>📉 stress-test</b><p class="why">20 compradores simultáneos por 5 asientos: exacto 5 ganan, 15 rechazo limpio, disponibilidad jamás negativa (cero oversell).</p></div>
+</div>
+
+<h2>5 · Glosario de una línea</h2>
+<div class="card gl">
+  <p><b>Saga</b> — compra repartida en pasos entre servicios, con deshacer si falla.</p>
+  <p><b>Compensación</b> — el "deshacer": pago rechazado → asiento devuelto.</p>
+  <p><b>Idempotencia</b> — reintentar lo mismo no genera efectos nuevos.</p>
+  <p><b>TTL</b> — tiempo de vida del hold; vence solo, como la retención de una aerolínea.</p>
+  <p><b>Sweeper</b> — tarea que barre cada 5 s buscando holds vencidos.</p>
+  <p><b>Cola FIFO</b> — mensajes entregados en orden y sin duplicados.</p>
+  <p><b>DLQ</b> — cola de mensajes "muertos" para inspeccionar qué falló.</p>
+  <p><b>Circuit breaker</b> — si una dependencia está caída, falla rápido en vez de colgar 10 s cada request.</p>
+  <p><b>Oversell</b> — vender más entradas que asientos; acá es cero, garantizado.</p>
+  <p><b>Emulador AWS</b> — un "AWS falso" corriendo en Docker local: mismas APIs, cero costo.</p>
+</div>
+
+<h2>6 · Correrlo vos mismo</h2>
+<div class="card">
+  <pre>git tag<span class="m">   # v0.3.0</span>
+powershell -File scripts\run-local.ps1      <span class="m"># 1) emulador + 4 servicios (deja logs en .artifacts\logs\)</span>
+powershell -File scripts\demo-ttl.ps1       <span class="m"># 2) el demo de arriba (exit 0 = todo pasó)</span>
+powershell -File scripts\demo-resilience.ps1 <span class="m">#   ...o cualquiera de la sección 4</span>
+powershell -File scripts\ci.ps1             <span class="m"># bonus: el gate completo de CI (build+tests+cobertura) en un comando</span></pre>
+  <p class="why">Requisitos: Docker Desktop con el contenedor <span class="mono">aws-emulator</span> arriba y PowerShell 5.1 (el que ya tenés en Windows).</p>
+</div>
+
+<p class="sub" style="margin-top:26px">TicketFlow v0.3.0 · fábrica NSDD · 186/186 tests · evidencia completa en brain/evidence/ · esta página: docs/demo-walkthrough.html</p>
+</body>
+</html>

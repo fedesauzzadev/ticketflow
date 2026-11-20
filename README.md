@@ -152,6 +152,8 @@ $p2                                                       # FAILED + reason "pag
 
 ## Scripts de demo (evidencia imprimible)
 
+> Guía visual con la corrida real anotada paso a paso: **docs/demo-walkthrough.html** (se abre en cualquier navegador).
+
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts\demo-cache.ps1          # MISS -> HIT -> compra -> MISS con valores
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts\demo-idempotency.ps1    # misma key => misma compra; 422s
