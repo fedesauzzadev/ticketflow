@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Text.Json;
 using Amazon.SQS;
 using Amazon.SQS.Model;
@@ -64,12 +65,17 @@ public sealed class CatalogSagaDedupTests
         new(type, purchaseId, JsonSerializer.SerializeToElement(payload, SagaJson.Options));
 
     /// <summary>Recibe y procesa los mensajes de la cola que matchean purchaseId (ignora y no
-    /// borra los de otras corridas paralelas). Devuelve cuántos comandos de esa compra llegaron.</summary>
+    /// borra los de otras corridas paralelas). Devuelve cuántos comandos de esa compra llegaron.
+    /// Tolerancia de visibilidad (flake en runner lento con docker-on-CI): un receive vacío
+    /// ANTES de ver nada nuestro no es fin del drain — se espera hasta 15 s y se corta recién
+    /// en la primera ronda vacía posterior a mensajes propios (drain real).</summary>
     private static async Task<int> DrainAndHandleAsync(Harness h, string queueUrl, string purchaseId,
         CancellationToken ct)
     {
         var handled = 0;
-        for (var poll = 0; poll < 15; poll++)
+        var sawOurs = false;
+        var sw = Stopwatch.StartNew();
+        while (sw.Elapsed < TimeSpan.FromSeconds(15))
         {
             var received = await h.Sqs.ReceiveMessageAsync(new ReceiveMessageRequest
             {
@@ -77,7 +83,12 @@ public sealed class CatalogSagaDedupTests
                 MaxNumberOfMessages = 10,
                 WaitTimeSeconds = 0,
             }, ct);
-            if (received.Messages is not { Count: > 0 }) break; // como L-005: Messages=null si vacía
+            if (received.Messages is not { Count: > 0 }) // como L-005: Messages=null si vacía
+            {
+                if (sawOurs) break; // ya drenamos todo lo nuestro
+                await Task.Delay(200, ct); // aún no visible (runner lento): esperar
+                continue;
+            }
 
             var any = false;
             foreach (var message in received.Messages)
@@ -92,7 +103,7 @@ public sealed class CatalogSagaDedupTests
                     ReceiptHandle = message.ReceiptHandle,
                 }, ct);
             }
-            if (!any) break; // la ronda no trajo nada nuestro: fin
+            if (any) sawOurs = true;
         }
         return handled;
     }
@@ -118,6 +129,7 @@ public sealed class CatalogSagaDedupTests
         // 1) Capa transporte: el mismo comando encolado 2 VECES con igual dedup id de SQS FIFO
         //    → ContentBasedDeduplication deja pasar UNO solo.
         await h.Transport.SendAsync(queueName, envelope, ct);
+        await Task.Delay(250, ct); // registro del dedup id del emulador (races en runner lento)
         await h.Transport.SendAsync(queueName, envelope, ct);
         var transportDelivered = await DrainAndHandleAsync(h, queueUrl, purchaseId, ct);
         Assert.Equal(1, transportDelivered);
