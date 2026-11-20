@@ -153,6 +153,10 @@ public sealed class SagaEndToEndTests
     {
         var harness = new Harness();
         var eventId = NewEventId();
+        // Emulador frío (runner de CI): purchases/outbox no existen hasta que ALGUIEN los
+        // crea — el ensure es idempotente, así que inicializar acá no cuesta nada tibio.
+        await harness.Purchases.InitializeAsync(ct);
+        await harness.Outbox.InitializeAsync(ct);
         await harness.CatalogRepo.InitializeAsync(
             [CatalogEvent.Create(eventId, "E2E Show",
                 new DateTimeOffset(2027, 5, 1, 20, 0, 0, TimeSpan.Zero), price, available)], ct);

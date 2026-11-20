@@ -1,6 +1,7 @@
 using System.Globalization;
 using Amazon.DynamoDBv2;
 using Amazon.DynamoDBv2.Model;
+using Amazon.Runtime;
 using TicketFlow.Catalog.Core.Application;
 using TicketFlow.Catalog.Core.Domain;
 
@@ -290,13 +291,25 @@ public sealed class DynamoDbEventRepository(IAmazonDynamoDB ddb) : IEventReposit
             // No existe → crear abajo.
         }
 
-        await ddb.CreateTableAsync(new CreateTableRequest
+        try
         {
-            TableName = TableName,
-            KeySchema = [new KeySchemaElement("pk", KeyType.HASH)],
-            AttributeDefinitions = [new AttributeDefinition("pk", ScalarAttributeType.S)],
-            BillingMode = BillingMode.PAY_PER_REQUEST,
-        }, ct);
+            await ddb.CreateTableAsync(new CreateTableRequest
+            {
+                TableName = TableName,
+                KeySchema = [new KeySchemaElement("pk", KeyType.HASH)],
+                AttributeDefinitions = [new AttributeDefinition("pk", ScalarAttributeType.S)],
+                BillingMode = BillingMode.PAY_PER_REQUEST,
+            }, ct);
+        }
+        catch (ResourceInUseException)
+        {
+            // Otro la está creando (clases de test paralelas contra emulador frío, p.ej. el
+            // runner de CI): perder la carrera es esperable — solo falta esperar a ACTIVE.
+        }
+        catch (AmazonServiceException)
+        {
+            // Carrera cruda del emulador (500): idem — el poll de abajo decide (timeout si no).
+        }
         await PollStatusAsync(TableStatus.ACTIVE, ct);
     }
 
