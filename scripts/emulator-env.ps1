@@ -18,6 +18,8 @@ $container = 'aws-emulator'
 # se chequee después -> EAP 'Continue' mientras hablamos con docker.
 $script:eap = $ErrorActionPreference
 $ErrorActionPreference = 'Continue'
+# Portabilidad (CI en ubuntu/pwsh): curl.exe es de Windows; en Linux el binario es curl.
+$curlBin = if (Get-Command curl.exe -ErrorAction SilentlyContinue) { 'curl.exe' } else { 'curl' }
 
 $running = docker ps --filter "name=^$container$" --filter "status=running" --format "{{.Names}}"
 if (-not $running) {
@@ -46,7 +48,7 @@ if ($LASTEXITCODE -ne 0) { throw "No se pudo copiar la CA del emulador (docker c
 # --- Health del emulador -----------------------------------------------------------------------
 $health = $null
 for ($i = 0; $i -lt 30; $i++) {
-    $health = (curl.exe -s --cacert $caPath https://localhost:9297/__admin/health) -join ''
+    $health = (& $curlBin -s --cacert $caPath https://localhost:9297/__admin/health) -join ''
     if ($health -eq 'ok') { break }
     Start-Sleep -Milliseconds 500
 }
