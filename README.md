@@ -1,5 +1,7 @@
 # TicketFlow
 
+[![CI](https://github.com/fedesauzzadev/ticketflow/actions/workflows/ci.yml/badge.svg)](https://github.com/fedesauzzadev/ticketflow/actions/workflows/ci.yml)
+
 **Backend de venta de entradas para eventos de alta demanda** (flash-sale ticketing): 4 microservicios .NET 10 orquestados con saga y compensación, cache observable, idempotencia observable — **100% sobre servicios AWS corriendo en un emulador oficial en local** (`https://127.0.0.1:9297`). Cero nube real, cero costos, cero secrets en el repo.
 
 > Un evaluador clona, corre un comando, y ve con curl: catálogo con cache (`X-Cache: HIT|MISS`), una compra que atraviesa **reserva → pago → emisión**, el rechazo que compensa, y la repetición que no duplica efectos.
@@ -92,15 +94,15 @@ Core** queda activo (cableado a los csproj): fallar el umbral falla la etapa `te
 si hay servicios vivos en :5080..5083 (el propio `-Demos` los levanta recién después de la
 etapa `tests` y los cierra al terminar — solo lo que él levantó).
 
-### El workflow de GitHub Actions (artefacto de portfolio)
+### El workflow de GitHub Actions (CI real, cero deriva)
 
-`.github/workflows/ci.yml` está versionado como **artefacto**: el repo **no tiene remote**,
-así que no corre hoy — pero correría **sin cambios** si lo ganara, porque no reimplementa
-nada: invoca **el mismo `scripts/ci.ps1`** que corre el dueño (cero deriva local/CI). En un
-runner real (`ubuntu-latest` trae Docker), el `preflight` levantaría el emulador AWS con el
-Docker del propio job (build de `aws-emulator/` + `docker run` — `emulator-env.ps1` ya sabe
-hacerlo) y la suite completa correría contra ese emulador del job. La validación local del
-YAML es **estructural** (`scripts\validate-workflow.ps1`, etapa `workflow-lint`): PS 5.1 no
+`.github/workflows/ci.yml` corre el gate **completo** en `ubuntu-latest` en cada push a
+`master`: invoca **el mismo `scripts/ci.ps1`** que corre el dueño localmente (cero
+deriva). El `preflight` buildea el emulador AWS con el Docker del propio job, extrae
+creds/CA de esa corrida, y la suite completa (186 tests + umbral de cobertura ≥70%)
+corre contra ese emulador — build 0 warnings → tests → infra-verify → workflow-lint,
+primera etapa que falla = culpable. La validación local del YAML es **estructural**
+(`scripts\validate-workflow.ps1`, etapa `workflow-lint`): PS 5.1 no
 tiene parser YAML — se chequean las invariantes (`on:`, `jobs:`, `runs-on:`, checkout,
 `setup-dotnet` 10.x, invocación de `ci.ps1`, indentación sin tabs).
 
