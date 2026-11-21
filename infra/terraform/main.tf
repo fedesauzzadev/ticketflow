@@ -13,6 +13,10 @@ terraform {
       source  = "hashicorp/aws"
       version = "~> 6.0"
     }
+    archive = {
+      source  = "hashicorp/archive"
+      version = "~> 2.0"
+    }
   }
 }
 
@@ -38,6 +42,8 @@ provider "aws" {
     s3       = var.emulator_endpoint
     sts      = var.emulator_endpoint
     iam      = var.emulator_endpoint
+    lambda   = var.emulator_endpoint
+    logs     = var.emulator_endpoint
   }
 }
 

@@ -91,6 +91,18 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts\provision.ps1 -Verif
 
 Qué mirar en el HCL: `endpoints {}` (cada servicio redirigido al emulador), los `skip_*` (sin ellos el provider consulta STS/IMDS reales al arrancar), `s3_use_path_style` y credenciales/CA por variables de entorno estándar (`AWS_ACCESS_KEY_ID`, `AWS_CA_BUNDLE`), nunca en el repo.
 
+### Lambda: notificación al emitirse una entrada
+
+Cuando Ticketing guarda el QR en `s3://ticketflow-tickets/qr/{compra}/{entrada}.json`, S3 dispara la Lambda [`ticketflow-ticket-notifier`](infra/lambda/ticket_notifier/handler.py) (Python 3.12), que deja la notificación como una línea JSON en CloudWatch Logs. Ningún servicio .NET la invoca: es un trigger por evento. Todo está en [`infra/terraform/lambda.tf`](infra/terraform/lambda.tf), que el mismo `terraform.ps1 apply` crea.
+
+```powershell
+python -m unittest discover infra/lambda/ticket_notifier                                # tests del handler
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\lambda-logs.ps1             # todas las notificaciones (requiere aws-cli)
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\lambda-logs.ps1 pur-...     # las de una compra
+```
+
+Qué mirar en `lambda.tf`, en orden: el zip (`archive_file` + `source_code_hash`: cambiar el código redespliega), el rol con su *trust policy* (quién lo asume) y su *permission policy* (qué puede hacer: solo escribir sus logs), el `aws_lambda_permission` (quién puede invocar: S3, y solo ese bucket) y la notificación del bucket con filtro `qr/*.json`. El emulador valida IAM: un trigger SQS→Lambda con un rol sin `sqs:ReceiveMessage` es rechazado igual que en AWS real.
+
 Límite: Terraform solo maneja lo que está en su estado. Si los servicios ya crearon los recursos con su ensure de arranque, `apply` falla por "ya existe" — usalo sobre un emulador recién recreado, **antes** de `run-local.ps1`. El estado (`terraform.tfstate`) es local y está gitignored.
 
 ## CI local: todo el gate en un comando (H-08)

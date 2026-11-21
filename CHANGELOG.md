@@ -11,6 +11,11 @@ versionado [SemVer](https://semver.org/lang/es/).
   recursos con `for_each` sobre el manifiesto `infra/aws-local.json` (única fuente de
   verdad) + wrapper `scripts/terraform.ps1`. Verificado from scratch: 15 added, plan sin
   drift, `provision.ps1 -Verify` 15/15 OK.
+- **Lambda de notificación** (N-4002): `ticketflow-ticket-notifier` (Python 3.12) se dispara
+  con el evento S3 `ObjectCreated` del QR de cada entrada y deja la notificación en
+  CloudWatch Logs. Función, rol IAM de mínimo privilegio, permiso de invocación y
+  notificación del bucket en `infra/terraform/lambda.tf`; `scripts/lambda-logs.ps1` la lee.
+  Sin cambios en los servicios .NET.
 
 ## [0.3.0] - 2026-11-19
 
