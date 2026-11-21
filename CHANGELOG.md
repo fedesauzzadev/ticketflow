@@ -3,6 +3,15 @@
 Formato [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/),
 versionado [SemVer](https://semver.org/lang/es/).
 
+## [Unreleased]
+
+### Agregado
+
+- **Terraform contra el emulador** (N-4001, D-0022): `infra/terraform/main.tf` crea los 15
+  recursos con `for_each` sobre el manifiesto `infra/aws-local.json` (única fuente de
+  verdad) + wrapper `scripts/terraform.ps1`. Verificado from scratch: 15 added, plan sin
+  drift, `provision.ps1 -Verify` 15/15 OK.
+
 ## [0.3.0] - 2026-11-19
 
 Entrega V2 (historias H-08..H-09, slices S09..S11). QA F6: SHIP (2 rondas,

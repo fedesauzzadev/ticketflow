@@ -78,6 +78,21 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts\provision.ps1 -Verif
 - Los servicios **conservan su ensure defensivo de arranque** (decisión D-0019): `run-local.ps1` funciona sin provision previo — el manifiesto es la fuente de verdad de la lista, el ensure es resiliencia de runtime.
 - La tool (`tools/TicketFlow.Provision`) reusa la plomería verificada de `Shared.Infrastructure` (CA pineada, SigV4, ensure tolerante a carreras).
 
+### Lo mismo con Terraform
+
+[`infra/terraform/main.tf`](infra/terraform/main.tf) crea los mismos 15 recursos con el provider oficial `hashicorp/aws` apuntado al emulador. No repite la lista: hace `for_each` sobre `jsondecode(file("../aws-local.json"))`, así que el manifiesto sigue siendo la única fuente de verdad (D-0022).
+
+```powershell
+winget install Hashicorp.Terraform                                                              # una vez
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\terraform.ps1 apply                  # crea los 15 recursos
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\terraform.ps1 plan -detailed-exitcode # exit 0 = sin drift
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\provision.ps1 -Verify                # verificador independiente: 15/15 OK
+```
+
+Qué mirar en el HCL: `endpoints {}` (cada servicio redirigido al emulador), los `skip_*` (sin ellos el provider consulta STS/IMDS reales al arrancar), `s3_use_path_style` y credenciales/CA por variables de entorno estándar (`AWS_ACCESS_KEY_ID`, `AWS_CA_BUNDLE`), nunca en el repo.
+
+Límite: Terraform solo maneja lo que está en su estado. Si los servicios ya crearon los recursos con su ensure de arranque, `apply` falla por "ya existe" — usalo sobre un emulador recién recreado, **antes** de `run-local.ps1`. El estado (`terraform.tfstate`) es local y está gitignored.
+
 ## CI local: todo el gate en un comando (H-08)
 
 ```powershell

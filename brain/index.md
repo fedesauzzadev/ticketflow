@@ -8,6 +8,8 @@ TicketFlow: portfolio backend de venta de entradas para eventos de alta demanda 
 ## Active slice
 **CORRIDA CERRADA (G4 aprobado 2026-11-19)** — V0 (N-1001..4) + V1 (N-2001..4) + V2 (N-3001..3) todos shipped; tags v0.1.0 / v0.2.0 / v0.3.0; QA adversarial SHIP en las 3 entregas (F4 r2, F5 r3, F6 r2). 11/11 nodos shipped, 21 ADRs (D-0001..D-0021), 15 learnings. Portfolio final: README + CHANGELOG + factory/ + brain/evidence/.
 
+**SLICE v3 ABIERTO (2026-11-21) — "más AWS" para estudio/portfolio.** Orden acordado con el dueño: N-4001 Terraform (verified) → Lambda de notificación (invoke directo; SQS→Lambda no funcionó en sondeo) → Dockerfiles + manifiestos k8s en Kubernetes de Docker Desktop + EKS/node group declarados en Terraform contra el emulador → candidatos: API Gateway, Step Functions, Secrets Manager/SSM.
+
 ## Nodes
 | ID | Title | Type | Size | Status | Key links |
 |----|-------|------|------|--------|-----------|
@@ -22,6 +24,7 @@ TicketFlow: portfolio backend de venta de entradas para eventos de alta demanda 
 | N-3001 | CI local (build+tests+cobertura en un comando) + workflow GH Actions artefacto | feature | M | shipped | H-08 (AC1..AC5) · depends_on N-2004 · slice v2 · absorbe F-V1-R3-01 · → D-0020 · evidencia 2026-11-18-fix-f-v2-round1 + 2026-11-15-S10 + 2026-11-18-qa-v2-r2-retest (hammer 7/7) |
 | N-3002 | IaC: aprovisionamiento declarativo e idempotente de tablas, colas y bucket | feature | S | shipped | H-08 (AC6..AC9) · depends_on N-1002 · slice v2 · → D-0019 · evidencia 2026-11-15-S09 |
 | N-3003 | Hold de asientos con TTL: expiración automática de reservas no pagadas | feature | L | shipped | H-09 (AC1..AC8) · depends_on N-2002 · slice v2 · → D-0017 (sweeper persistente 5 s + claim CAS + tier zombi), D-0018 (hold:true + POST /purchases/{id}/payment + EXPIRED) · evidencia 2026-11-15-S11 |
+| N-4001 | Terraform contra el emulador: 15 recursos por for_each sobre el manifiesto | feature | M | verified | depends_on N-3002 · slice v3 · → D-0022 · evidencia 2026-11-21-S12 (AC1..AC5 OK) |
 
 ## Decisions
 | ID | Título | Reversibility |
@@ -47,8 +50,10 @@ TicketFlow: portfolio backend de venta de entradas para eventos de alta demanda 
 | D-0019 | IaC V2: manifiesto infra/aws-local.json + tools/TicketFlow.Provision (--apply/--verify) + ensure defensivo SE CONSERVA + guard test manifiesto↔código | easy |
 | D-0020 | CI V2: scripts/ci.ps1 (etapas con culpable + -Demos) + workflow GH Actions invoca el mismo script + paginación de DLQ (F-V1-R3-01) | easy |
 | D-0021 | G4 aprobado: V2 entregada + v0.3.0 + cierre de corrida | easy |
+| D-0022 | Terraform contra el emulador leyendo el manifiesto (enmienda rechazo de D-0019) | easy |
 
 ## Evidence
+- 2026-11-21-S12-n4001-verification.md — S12/N-4001 (Terraform): apply from scratch 15 added + Provision --verify 15/15 OK + plan sin drift, en emulador vacío aparte :9298 y luego en el principal recreado; AC5 OK (run-local → TICKETS_ISSUED, 500→499). Incluye sondeo del emulador: Lambda invoke OK, EKS control plane ACTIVE (API k8s no alcanzable desde host), SQS→Lambda mapping falló.
 - 2026-11-18-fix-f-v2-round1.md — Ronda fix 1 post-QA V2 (dev): F-V2-01 serialización Orders.Tests + sweep >=1 + -m:1 (gate x5 exit 0, suite 186/186 x2, rojo/verde); F-V2-02 lint anclado al run:; F-V2-03 null-guard buckets (15/15 FALTA exit 1); F-V2-04 README; F-V2-05 reason zombi con advertencia. Nota residual: 3 rojos intermedios sin capture del texto (Invoke-Stage descarta stdout de dotnet).
 - 2026-11-18-qa-v2-adversarial.md - QA F6 V2 adversarial (HEAD 171638d): suite 186/186 flaky 3/7 (F-V2-01 Mayor: estado compartido entre collections/proyectos de test paralelos); rojo/verde CI con break propio; DLQ 23 entradas -> demo-resilience 2x 15/15; provision from-scratch/1:1/idempotente; hold adversarial completo (borde TTL, crash AC7, zombis A/B, doble liberacion, hostiles) TODO consistente; F-V2-02 lint drift, F-V2-03 verify crash buckets, F-V2-04 README stale, F-V2-05 zombi pago aprobado sin warning. Veredicto NO-SHIP ronda fix 1.
 - 2026-11-15-S10-n3001-verification.md — S10/N-3001 VERIFICADO (CI D-0020): scripts/ci.ps1 (preflight → build -warnaserror → suite con umbral ≥70% Core → infra-verify → workflow-lint; -Demos arranca servicios solo si caídos + 3 demos exit 0 + cierre ordenado 0 puertos; primera etapa que falla = CULPABLE) + scripts/validate-workflow.ps1 (9 invariantes estructurales, roto→exit 1) + .github/workflows/ci.yml (artefacto sin remote que invoca el MISMO ci.ps1; runner real documentado) + F-V1-R3-01 CERRADO: PeekDlqAsync enumera la DLQ completa sin borrar (páginas vis=2 + dedup MessageId, tope 500, settle 2,2 s) → demo-resilience 2× exit 0 con DLQ payments 13→24 entradas sucias; asserts DLQ e2e restaurados. Suite 157/157 (4 corridas). Gate rojo/verde: Assert.Fail → exit 1 CULPABLE tests → revert → exit 0. Hallazgo: suite + servicios vivos compiten por colas compartidas (warning en preflight + README: CI con servicios abajo).
