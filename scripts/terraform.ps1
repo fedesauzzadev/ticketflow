@@ -17,11 +17,12 @@ $env:AWS_SECRET_ACCESS_KEY = $env:AWS_EMULATOR_SECRET_ACCESS_KEY
 $env:AWS_CA_BUNDLE = $env:AWS_EMULATOR_CA_PATH
 $env:TF_VAR_emulator_endpoint = $env:AWS_EMULATOR_ENDPOINT
 $env:TF_IN_AUTOMATION = '1'
+$env:TF_INPUT = '0' # nunca preguntar; vale para todos los subcomandos (output no acepta -input)
 
 $dir = Join-Path (Split-Path -Parent $PSScriptRoot) 'infra\terraform'
 $ErrorActionPreference = 'Continue' # PS 5.1: stderr de un nativo no debe matar el script
 terraform "-chdir=$dir" init -input=false -no-color | Select-Object -Last 1
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 if ($tfArgs[0] -in 'apply', 'destroy') { $tfArgs += '-auto-approve' }
-terraform "-chdir=$dir" @tfArgs -input=false
+terraform "-chdir=$dir" @tfArgs
 exit $LASTEXITCODE

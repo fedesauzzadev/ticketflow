@@ -16,6 +16,9 @@ versionado [SemVer](https://semver.org/lang/es/).
   CloudWatch Logs. Función, rol IAM de mínimo privilegio, permiso de invocación y
   notificación del bucket en `infra/terraform/lambda.tf`; `scripts/lambda-logs.ps1` la lee.
   Sin cambios en los servicios .NET.
+- **EKS en Terraform** (N-4003): `infra/terraform/eks.tf` declara VPC, 2 subnets en AZs
+  distintas, rol de cluster y rol de nodos con sus managed policies, cluster `ticketflow`
+  y un managed node group. Contra el emulador es solo control plane (ACTIVE, sin pods).
 
 ## [0.3.0] - 2026-11-19
 

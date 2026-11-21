@@ -44,6 +44,8 @@ provider "aws" {
     iam      = var.emulator_endpoint
     lambda   = var.emulator_endpoint
     logs     = var.emulator_endpoint
+    eks      = var.emulator_endpoint
+    ec2      = var.emulator_endpoint
   }
 }
 

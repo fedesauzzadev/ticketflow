@@ -103,6 +103,17 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts\lambda-logs.ps1 pur-
 
 Qué mirar en `lambda.tf`, en orden: el zip (`archive_file` + `source_code_hash`: cambiar el código redespliega), el rol con su *trust policy* (quién lo asume) y su *permission policy* (qué puede hacer: solo escribir sus logs), el `aws_lambda_permission` (quién puede invocar: S3, y solo ese bucket) y la notificación del bucket con filtro `qr/*.json`. El emulador valida IAM: un trigger SQS→Lambda con un rol sin `sqs:ReceiveMessage` es rechazado igual que en AWS real.
 
+### EKS: el cluster como código (solo control plane)
+
+[`infra/terraform/eks.tf`](infra/terraform/eks.tf) declara lo que un cluster EKS necesita antes de correr un solo pod: una VPC con 2 subnets en zonas distintas (EKS lo exige), el rol IAM del **cluster** (lo asume `eks.amazonaws.com`) y el de los **nodos** (lo asume `ec2.amazonaws.com`, con las 3 managed policies de worker, CNI y lectura de ECR), el cluster `ticketflow` y un managed node group con autoscaling 1–3.
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\terraform.ps1 apply
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\terraform.ps1 output eks   # cluster, versión, endpoint, estado
+```
+
+Alcance real: el emulador deja cluster y node group en `ACTIVE` y hasta sirve una API de Kubernetes emulada con los nodos registrados, pero en un puerto interno del contenedor y **sin ejecutar contenedores** (un pod de prueba termina en `Failed`). Sirve para aprender y mostrar la parte AWS de EKS (red, IAM, node groups, Terraform); los servicios siguen corriendo como procesos locales.
+
 Límite: Terraform solo maneja lo que está en su estado. Si los servicios ya crearon los recursos con su ensure de arranque, `apply` falla por "ya existe" — usalo sobre un emulador recién recreado, **antes** de `run-local.ps1`. El estado (`terraform.tfstate`) es local y está gitignored.
 
 ## CI local: todo el gate en un comando (H-08)
