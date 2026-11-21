@@ -72,6 +72,18 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts\run-docker.ps1 -Down
 
 Un solo [`Dockerfile`](Dockerfile) multi-stage sirve a los 4 (`--build-arg SERVICE=Orders`): el SDK compila y la imagen final lleva solo el runtime, corre como usuario no root y no contiene secretos — las credenciales del emulador entran por variables de entorno y la CA se monta como volumen de solo lectura. Como dentro de un contenedor el emulador ya no es `localhost`, compose activa `AWS_EMULATOR_ALLOWED_HOST` (opt-in de un único host; el pin de la CA sigue impidiendo hablar con AWS real, D-0023).
 
+**Alternativa: los 4 servicios en Kubernetes** (cluster local [kind](https://kind.sigs.k8s.io/); mismos puertos, tampoco a la vez que los otros dos):
+
+```powershell
+winget install Kubernetes.kind Kubernetes.kubectl                                  # una vez
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\run-k8s.ps1            # cluster + imágenes + deploy
+kubectl --context kind-ticketflow -n ticketflow get pods                           # 4 pods Running
+kubectl --context kind-ticketflow -n ticketflow delete pod -l app=payments         # self-healing: el Deployment lo recrea
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\run-k8s.ps1 -Down      # borra el cluster
+```
+
+[`infra/k8s/ticketflow.yaml`](infra/k8s/ticketflow.yaml) tiene, por servicio, un **Deployment** (imagen, probes de readiness y liveness, requests/limits) y un **Service** (nombre DNS estable: Órdenes llama a `http://catalog:5080`). Las credenciales del emulador van en un **Secret** y la CA en un **ConfigMap** que el script crea desde el entorno; el YAML versionado no contiene ningún valor. Son manifiestos estándar: en EKS real cambiarían las imágenes (a ECR) y el tipo de Service. Los pods corren en kind y no en el EKS del emulador porque ese cluster no ejecuta contenedores (ver sección EKS).
+
 Cuando veas `==> Todo listo:` el flujo completo está operativo. `Ctrl+C` detiene los 4 servicios (el emulador queda; su estado persiste mientras no reinicies el contenedor).
 
 ## Recursos AWS del emulador: dónde se declaran (IaC)

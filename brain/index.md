@@ -8,7 +8,7 @@ TicketFlow: portfolio backend de venta de entradas para eventos de alta demanda 
 ## Active slice
 **CORRIDA CERRADA (G4 aprobado 2026-11-19)** — V0 (N-1001..4) + V1 (N-2001..4) + V2 (N-3001..3) todos shipped; tags v0.1.0 / v0.2.0 / v0.3.0; QA adversarial SHIP en las 3 entregas (F4 r2, F5 r3, F6 r2). 11/11 nodos shipped, 21 ADRs (D-0001..D-0021), 15 learnings. Portfolio final: README + CHANGELOG + factory/ + brain/evidence/.
 
-**SLICE v3 ABIERTO (2026-11-21) — "más AWS" para estudio/portfolio.** Orden acordado con el dueño: N-4001 Terraform (verified) → N-4002 Lambda de notificación por evento S3 (verified) → N-4003 EKS en Terraform (verified) → N-4004 servicios en contenedores (verified) → PENDIENTE: manifiestos k8s en cluster local (BLOQUEADO: Kubernetes de Docker Desktop no habilitado; alternativa kind) → candidatos: API Gateway, Step Functions, Secrets Manager/SSM.
+**SLICE v3 ABIERTO (2026-11-21) — "más AWS" para estudio/portfolio.** Orden acordado con el dueño: N-4001 Terraform (verified) → N-4002 Lambda de notificación por evento S3 (verified) → N-4003 EKS en Terraform (verified) → N-4004 servicios en contenedores (verified) → N-4005 servicios en Kubernetes local con kind (verified). Bloque acordado COMPLETO. Tres formas de correr los servicios, mismos puertos, no simultáneas: run-local / run-docker / run-k8s → candidatos: API Gateway, Step Functions, Secrets Manager/SSM.
 
 ## Nodes
 | ID | Title | Type | Size | Status | Key links |
@@ -28,6 +28,7 @@ TicketFlow: portfolio backend de venta de entradas para eventos de alta demanda 
 | N-4002 | Lambda ticket-notifier: S3 ObjectCreated (QR) → Lambda python → CloudWatch Logs, en Terraform | feature | M | verified | depends_on N-4001 · slice v3 · cierra L-002 (SNS) · evidencia 2026-11-21-S13 |
 | N-4003 | EKS en Terraform: VPC + 2 subnets + roles IAM + cluster + managed node group (control plane) | feature | M | verified | depends_on N-4001 · slice v3 · evidencia 2026-11-21-S14 |
 | N-4004 | Los 4 servicios en contenedores: Dockerfile único + compose (perfil services) + allowlist de host | feature | M | verified | slice v3 · → D-0023 · evidencia 2026-11-21-S15 (203/203) |
+| N-4005 | Los 4 servicios en Kubernetes local (kind): Deployments + Services + Secret/ConfigMap | feature | M | verified | depends_on N-4004 · slice v3 · evidencia 2026-11-21-S16 |
 
 ## Decisions
 | ID | Título | Reversibility |
@@ -57,6 +58,7 @@ TicketFlow: portfolio backend de venta de entradas para eventos de alta demanda 
 | D-0023 | Gate NFR-7 con allowlist opt-in de UN host (AWS_EMULATOR_ALLOWED_HOST) + SERVICE_HOST + S3 path-style | easy |
 
 ## Evidence
+- 2026-11-21-S16-n4005-verification.md — S16/N-4005 (kind): run-k8s exit 0 x2, compra aprobada/rechazada + Lambda por NodePort, DNS de Service, pod borrado recreado. Hallazgo: restart simultáneo satura el emulador (timeout de arranque → 1 reinicio de 2 pods, se recuperan solos).
 - 2026-11-21-S15-n4004-verification.md — S15/N-4004 (contenedores): run-docker 4 imágenes + 4 contenedores, compra aprobada/rechazada + Lambda OK, imagen sin secretos y no root, suite 203/203 x2. Bug: S3 virtual-hosted con host por nombre → ForcePathStyle.
 - 2026-11-21-S14-n4003-verification.md — S14/N-4003 (EKS): apply 11 added, cluster+nodegroup ACTIVE, plan sin drift, regresión OK. Hallazgos: API k8s emulada en puerto aleatorio interno al contenedor, acepta pods pero quedan Failed (no corre contenedores), DELETE de pods no permitido; Kubernetes de Docker Desktop no habilitado.
 - 2026-11-21-S13-n4002-verification.md — S13/N-4002 (Lambda): apply 6 added + plan sin drift; compra de 2 asientos → 2 notificaciones JSON en CloudWatch Logs; unittest 4/4 (encontró bug key null). Sondeo: el emulador valida IAM del rol (SQS→Lambda exige policy), S3→Lambda OK, dotnet runtime sin probar ejecución.

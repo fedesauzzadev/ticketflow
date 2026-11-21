@@ -22,6 +22,10 @@ versionado [SemVer](https://semver.org/lang/es/).
 - **Servicios en contenedores** (N-4004, D-0023): un `Dockerfile` multi-stage para los 4
   servicios (`--build-arg SERVICE=`), perfil `services` en `docker-compose.yml` y
   `scripts/run-docker.ps1`. Imágenes sin secretos y con usuario no root.
+- **Servicios en Kubernetes local** (N-4005): `infra/k8s/ticketflow.yaml` (Namespace, 4
+  Deployments con probes y límites, 4 Services) sobre un cluster kind (`infra/k8s/kind.yaml`),
+  desplegado con `scripts/run-k8s.ps1`. Credenciales en un Secret y CA en un ConfigMap
+  creados desde el entorno, nunca versionados.
 
 ### Cambiado
 

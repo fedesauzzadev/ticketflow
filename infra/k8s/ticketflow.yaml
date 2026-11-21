@@ -1,0 +1,157 @@
+# TicketFlow en Kubernetes (N-4005): por servicio, un Deployment (qué corre) + un Service (cómo
+# se lo encuentra). Aplicar con scripts\run-k8s.ps1, que antes crea en el namespace:
+#   Secret    emulator-credentials  (AWS_EMULATOR_ACCESS_KEY_ID / _SECRET_ACCESS_KEY de la corrida)
+#   ConfigMap emulator-ca           (ca.pem del emulador: es pública, por eso ConfigMap y no Secret)
+#   ConfigMap ticketflow-config     (endpoint del emulador + seed de eventos)
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: ticketflow
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: { name: catalog, namespace: ticketflow }
+spec:
+  replicas: 1 # shortcut: 1 réplica (cache in-app y workers de saga sin probar en paralelo); subir tras verificarlo
+  selector: { matchLabels: { app: catalog } }
+  template:
+    metadata: { labels: { app: catalog } }
+    spec:
+      containers:
+        - name: catalog
+          image: ticketflow-catalog:latest
+          imagePullPolicy: IfNotPresent # la imagen se carga con `kind load`; no hay registry
+          ports: [{ containerPort: 5080 }]
+          envFrom:
+            - secretRef: { name: emulator-credentials }
+            - configMapRef: { name: ticketflow-config }
+          volumeMounts:
+            - { name: emulator-ca, mountPath: /run/emulator, readOnly: true }
+          resources:
+            requests: { cpu: 50m, memory: 128Mi }
+            limits: { memory: 384Mi }
+          # readiness: ¿puede recibir tráfico? (saca el pod del Service si falla)
+          readinessProbe: { httpGet: { path: /events, port: 5080 }, periodSeconds: 5 }
+          # liveness: ¿está colgado? (reinicia el contenedor si falla)
+          livenessProbe: { tcpSocket: { port: 5080 }, initialDelaySeconds: 20, periodSeconds: 10 }
+      volumes:
+        - name: emulator-ca
+          configMap: { name: emulator-ca }
+---
+apiVersion: v1
+kind: Service
+metadata: { name: catalog, namespace: ticketflow }
+spec:
+  type: NodePort # ClusterIP alcanzaría puertas adentro; NodePort lo expone al host vía kind
+  selector: { app: catalog }
+  ports: [{ port: 5080, targetPort: 5080, nodePort: 30080 }]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: { name: orders, namespace: ticketflow }
+spec:
+  replicas: 1
+  selector: { matchLabels: { app: orders } }
+  template:
+    metadata: { labels: { app: orders } }
+    spec:
+      containers:
+        - name: orders
+          image: ticketflow-orders:latest
+          imagePullPolicy: IfNotPresent
+          ports: [{ containerPort: 5081 }]
+          envFrom:
+            - secretRef: { name: emulator-credentials }
+            - configMapRef: { name: ticketflow-config }
+          env:
+            - { name: CATALOG_BASE_URL, value: "http://catalog:5080" } # DNS del Service, no IP
+          volumeMounts:
+            - { name: emulator-ca, mountPath: /run/emulator, readOnly: true }
+          resources:
+            requests: { cpu: 50m, memory: 128Mi }
+            limits: { memory: 384Mi }
+          readinessProbe: { httpGet: { path: /health, port: 5081 }, periodSeconds: 5 }
+          livenessProbe: { httpGet: { path: /health, port: 5081 }, initialDelaySeconds: 20, periodSeconds: 10 }
+      volumes:
+        - name: emulator-ca
+          configMap: { name: emulator-ca }
+---
+apiVersion: v1
+kind: Service
+metadata: { name: orders, namespace: ticketflow }
+spec:
+  type: NodePort
+  selector: { app: orders }
+  ports: [{ port: 5081, targetPort: 5081, nodePort: 30081 }]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: { name: payments, namespace: ticketflow }
+spec:
+  replicas: 1
+  selector: { matchLabels: { app: payments } }
+  template:
+    metadata: { labels: { app: payments } }
+    spec:
+      containers:
+        - name: payments
+          image: ticketflow-payments:latest
+          imagePullPolicy: IfNotPresent
+          ports: [{ containerPort: 5082 }]
+          envFrom:
+            - secretRef: { name: emulator-credentials }
+            - configMapRef: { name: ticketflow-config }
+          volumeMounts:
+            - { name: emulator-ca, mountPath: /run/emulator, readOnly: true }
+          resources:
+            requests: { cpu: 50m, memory: 128Mi }
+            limits: { memory: 384Mi }
+          readinessProbe: { httpGet: { path: /health, port: 5082 }, periodSeconds: 5 }
+          livenessProbe: { httpGet: { path: /health, port: 5082 }, initialDelaySeconds: 20, periodSeconds: 10 }
+      volumes:
+        - name: emulator-ca
+          configMap: { name: emulator-ca }
+---
+apiVersion: v1
+kind: Service
+metadata: { name: payments, namespace: ticketflow }
+spec:
+  type: NodePort
+  selector: { app: payments }
+  ports: [{ port: 5082, targetPort: 5082, nodePort: 30082 }]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: { name: ticketing, namespace: ticketflow }
+spec:
+  replicas: 1
+  selector: { matchLabels: { app: ticketing } }
+  template:
+    metadata: { labels: { app: ticketing } }
+    spec:
+      containers:
+        - name: ticketing
+          image: ticketflow-ticketing:latest
+          imagePullPolicy: IfNotPresent
+          ports: [{ containerPort: 5083 }]
+          envFrom:
+            - secretRef: { name: emulator-credentials }
+            - configMapRef: { name: ticketflow-config }
+          volumeMounts:
+            - { name: emulator-ca, mountPath: /run/emulator, readOnly: true }
+          resources:
+            requests: { cpu: 50m, memory: 128Mi }
+            limits: { memory: 384Mi }
+          readinessProbe: { httpGet: { path: /health, port: 5083 }, periodSeconds: 5 }
+          livenessProbe: { httpGet: { path: /health, port: 5083 }, initialDelaySeconds: 20, periodSeconds: 10 }
+      volumes:
+        - name: emulator-ca
+          configMap: { name: emulator-ca }
+---
+apiVersion: v1
+kind: Service
+metadata: { name: ticketing, namespace: ticketflow }
+spec:
+  type: NodePort
+  selector: { app: ticketing }
+  ports: [{ port: 5083, targetPort: 5083, nodePort: 30083 }]

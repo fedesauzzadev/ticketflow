@@ -1,0 +1,12 @@
+# Cluster local para TicketFlow (N-4005): 1 nodo. Los NodePort 30080..30083 de los
+# Services se publican en los mismos puertos del host que usan run-local y run-docker.
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+name: ticketflow
+nodes:
+  - role: control-plane
+    extraPortMappings:
+      - { containerPort: 30080, hostPort: 5080 }
+      - { containerPort: 30081, hostPort: 5081 }
+      - { containerPort: 30082, hostPort: 5082 }
+      - { containerPort: 30083, hostPort: 5083 }
