@@ -5,9 +5,24 @@
 #   docker compose up -d          # levanta el emulador en https://localhost:9297
 #   powershell -File scripts\run-local.ps1   # luego: servicios + demos listos
 #
-# Nota: los 4 servicios .NET no van en compose — corren como procesos locales
-# manejados por run-local.ps1 (logs en .artifacts\logs\). Containerizarlos seria
-# trabajo futuro (Dockerfiles por servicio + CA pin dentro de cada imagen).
+# Los 4 servicios .NET corren como procesos locales con run-local.ps1 (por defecto) o
+# en contenedores con scripts\run-docker.ps1 (perfil "services" de este archivo, N-4004).
+
+# Los 4 servicios en contenedores (N-4004): perfil "services", lo maneja scripts\run-docker.ps1
+# (necesita AWS_EMULATOR_* de emulator-env.ps1 en el entorno). Mismos puertos que run-local.
+x-service: &service
+  profiles: ["services"]
+  environment: &service-env
+    # El emulador se alcanza por el host: sirve igual si lo levantó compose o `docker run`.
+    AWS_EMULATOR_ENDPOINT: https://host.docker.internal:9297
+    AWS_EMULATOR_ALLOWED_HOST: host.docker.internal # opt-in del gate NFR-7 (D-0023)
+    AWS_EMULATOR_ACCESS_KEY_ID: ${AWS_EMULATOR_ACCESS_KEY_ID:-}
+    AWS_EMULATOR_SECRET_ACCESS_KEY: ${AWS_EMULATOR_SECRET_ACCESS_KEY:-}
+    AWS_EMULATOR_CA_PATH: /run/emulator/ca.pem
+  volumes:
+    - ./.secrets/ca.pem:/run/emulator/ca.pem:ro # CA de la corrida: montada, nunca en la imagen
+  extra_hosts:
+    - "host.docker.internal:host-gateway" # Linux: Docker Desktop ya lo resuelve solo
 
 services:
   aws-emulator:
@@ -17,3 +32,34 @@ services:
     ports:
       - "9297:9297"
     restart: unless-stopped
+
+  catalog:
+    <<: *service
+    image: ticketflow-catalog
+    build: { context: ., args: { SERVICE: Catalog } }
+    ports: ["5080:5080"]
+    environment:
+      <<: *service-env
+      SEED_EVENTS: ${SEED_EVENTS:-}
+
+  orders:
+    <<: *service
+    image: ticketflow-orders
+    build: { context: ., args: { SERVICE: Orders } }
+    ports: ["5081:5081"]
+    environment:
+      <<: *service-env
+      CATALOG_BASE_URL: http://catalog:5080 # DNS interno de compose
+      HOLD_TTL_SECONDS: ${HOLD_TTL_SECONDS:-90}
+
+  payments:
+    <<: *service
+    image: ticketflow-payments
+    build: { context: ., args: { SERVICE: Payments } }
+    ports: ["5082:5082"]
+
+  ticketing:
+    <<: *service
+    image: ticketflow-ticketing
+    build: { context: ., args: { SERVICE: Ticketing } }
+    ports: ["5083:5083"]

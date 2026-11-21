@@ -1,0 +1,13 @@
+**/bin/
+**/obj/
+.git/
+.secrets/
+.artifacts/
+**/TestResults/
+**/.terraform/
+*.tfstate*
+brain/
+docs/
+factory/
+tests/
+tools/

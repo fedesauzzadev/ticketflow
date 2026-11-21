@@ -19,6 +19,16 @@ versionado [SemVer](https://semver.org/lang/es/).
 - **EKS en Terraform** (N-4003): `infra/terraform/eks.tf` declara VPC, 2 subnets en AZs
   distintas, rol de cluster y rol de nodos con sus managed policies, cluster `ticketflow`
   y un managed node group. Contra el emulador es solo control plane (ACTIVE, sin pods).
+- **Servicios en contenedores** (N-4004, D-0023): un `Dockerfile` multi-stage para los 4
+  servicios (`--build-arg SERVICE=`), perfil `services` en `docker-compose.yml` y
+  `scripts/run-docker.ps1`. Imágenes sin secretos y con usuario no root.
+
+### Cambiado
+
+- Gate de endpoint del emulador (NFR-7): `AWS_EMULATOR_ALLOWED_HOST` autoriza por opt-in UN
+  host extra (nunca un dominio de AWS); sin la variable el comportamiento no cambia.
+- `SERVICE_HOST` configura el host de bind de los servicios (default `localhost`).
+- Cliente S3 con `ForcePathStyle` (necesario cuando el endpoint es un nombre de host).
 
 ## [0.3.0] - 2026-11-19
 

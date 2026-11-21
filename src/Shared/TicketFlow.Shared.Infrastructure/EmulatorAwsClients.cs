@@ -86,6 +86,9 @@ public static class EmulatorAwsClients
             {
                 ServiceURL = options.Endpoint,
                 AuthenticationRegion = options.Region,
+                // D-0023: con un host por NOMBRE (contenedores) el SDK usaría virtual-hosted style
+                // (bucket.host → DNS inexistente); con IP ya usaba path-style implícito.
+                ForcePathStyle = true,
                 Timeout = options.Timeout,
                 MaxErrorRetry = 0, // QA F-01: reintento del SDK multiplica el timeout (4x10 s=40 s medidos); el retry vive en la app.
                 HttpClientFactory = pin,

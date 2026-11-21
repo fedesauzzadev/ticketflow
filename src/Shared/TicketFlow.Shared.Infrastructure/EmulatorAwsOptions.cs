@@ -46,11 +46,26 @@ public sealed class EmulatorAwsOptions
         if (!Uri.TryCreate(options.Endpoint, UriKind.Absolute, out var uri) || uri.Scheme != Uri.UriSchemeHttps)
             throw new InvalidOperationException($"AWS_EMULATOR_ENDPOINT debe ser una URL HTTPS: '{options.Endpoint}'.");
 
-        if (uri.Host is not ("127.0.0.1" or "localhost" or "::1"))
+        if (!IsAllowedHost(uri.Host, Environment.GetEnvironmentVariable("AWS_EMULATOR_ALLOWED_HOST")))
             throw new InvalidOperationException(
                 $"AWS_EMULATOR_ENDPOINT debe ser loopback (el emulador corre local): '{options.Endpoint}'. " +
-                "El resto de hosts se rechaza por diseño: cero llamadas a nube real (NFR-7).");
+                "El resto de hosts se rechaza por diseño: cero llamadas a nube real (NFR-7). " +
+                "En contenedores, AWS_EMULATOR_ALLOWED_HOST autoriza UN host extra (nunca *.amazonaws.com).");
 
         return options;
+    }
+
+    /// <summary>
+    /// Gate NFR-7: loopback siempre; además UN host extra opt-in (D-0023) para cuando el
+    /// servicio corre en un contenedor y el emulador es otro host de la red (compose/k8s).
+    /// Un dominio de AWS real no se puede autorizar; el pin de CA sigue siendo la garantía dura.
+    /// </summary>
+    public static bool IsAllowedHost(string host, string? allowedHost)
+    {
+        if (host is "127.0.0.1" or "localhost" or "::1" or "[::1]") return true;
+        if (string.IsNullOrWhiteSpace(allowedHost)) return false;
+        if (allowedHost.Contains("amazonaws", StringComparison.OrdinalIgnoreCase) ||
+            allowedHost.Contains("aws.com", StringComparison.OrdinalIgnoreCase)) return false;
+        return string.Equals(host, allowedHost.Trim(), StringComparison.OrdinalIgnoreCase);
     }
 }

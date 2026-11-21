@@ -62,6 +62,16 @@ Eso: (1) levanta el contenedor `aws-emulator` si está caído (lo buildea si no 
 | Pagos | http://localhost:5082 | `GET /health` |
 | Ticketing | http://localhost:5083 | `GET /health` |
 
+**Alternativa: los 4 servicios en contenedores** (mismos puertos y rutas; no correr ambos a la vez):
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\run-docker.ps1         # build de las 4 imágenes + up
+docker compose logs -f orders                                                      # logs de un servicio
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\run-docker.ps1 -Down   # baja los 4 (el emulador queda)
+```
+
+Un solo [`Dockerfile`](Dockerfile) multi-stage sirve a los 4 (`--build-arg SERVICE=Orders`): el SDK compila y la imagen final lleva solo el runtime, corre como usuario no root y no contiene secretos — las credenciales del emulador entran por variables de entorno y la CA se monta como volumen de solo lectura. Como dentro de un contenedor el emulador ya no es `localhost`, compose activa `AWS_EMULATOR_ALLOWED_HOST` (opt-in de un único host; el pin de la CA sigue impidiendo hablar con AWS real, D-0023).
+
 Cuando veas `==> Todo listo:` el flujo completo está operativo. `Ctrl+C` detiene los 4 servicios (el emulador queda; su estado persiste mientras no reinicies el contenedor).
 
 ## Recursos AWS del emulador: dónde se declaran (IaC)

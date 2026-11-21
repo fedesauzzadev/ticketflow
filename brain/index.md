@@ -8,7 +8,7 @@ TicketFlow: portfolio backend de venta de entradas para eventos de alta demanda 
 ## Active slice
 **CORRIDA CERRADA (G4 aprobado 2026-11-19)** — V0 (N-1001..4) + V1 (N-2001..4) + V2 (N-3001..3) todos shipped; tags v0.1.0 / v0.2.0 / v0.3.0; QA adversarial SHIP en las 3 entregas (F4 r2, F5 r3, F6 r2). 11/11 nodos shipped, 21 ADRs (D-0001..D-0021), 15 learnings. Portfolio final: README + CHANGELOG + factory/ + brain/evidence/.
 
-**SLICE v3 ABIERTO (2026-11-21) — "más AWS" para estudio/portfolio.** Orden acordado con el dueño: N-4001 Terraform (verified) → N-4002 Lambda de notificación por evento S3 (verified) → N-4003 EKS en Terraform (verified) → PENDIENTE: Dockerfiles de los 4 servicios (CA pin dentro de la imagen) → manifiestos k8s en cluster local (BLOQUEADO: Kubernetes de Docker Desktop no habilitado; alternativa kind) → candidatos: API Gateway, Step Functions, Secrets Manager/SSM.
+**SLICE v3 ABIERTO (2026-11-21) — "más AWS" para estudio/portfolio.** Orden acordado con el dueño: N-4001 Terraform (verified) → N-4002 Lambda de notificación por evento S3 (verified) → N-4003 EKS en Terraform (verified) → N-4004 servicios en contenedores (verified) → PENDIENTE: manifiestos k8s en cluster local (BLOQUEADO: Kubernetes de Docker Desktop no habilitado; alternativa kind) → candidatos: API Gateway, Step Functions, Secrets Manager/SSM.
 
 ## Nodes
 | ID | Title | Type | Size | Status | Key links |
@@ -27,6 +27,7 @@ TicketFlow: portfolio backend de venta de entradas para eventos de alta demanda 
 | N-4001 | Terraform contra el emulador: 15 recursos por for_each sobre el manifiesto | feature | M | verified | depends_on N-3002 · slice v3 · → D-0022 · evidencia 2026-11-21-S12 (AC1..AC5 OK) |
 | N-4002 | Lambda ticket-notifier: S3 ObjectCreated (QR) → Lambda python → CloudWatch Logs, en Terraform | feature | M | verified | depends_on N-4001 · slice v3 · cierra L-002 (SNS) · evidencia 2026-11-21-S13 |
 | N-4003 | EKS en Terraform: VPC + 2 subnets + roles IAM + cluster + managed node group (control plane) | feature | M | verified | depends_on N-4001 · slice v3 · evidencia 2026-11-21-S14 |
+| N-4004 | Los 4 servicios en contenedores: Dockerfile único + compose (perfil services) + allowlist de host | feature | M | verified | slice v3 · → D-0023 · evidencia 2026-11-21-S15 (203/203) |
 
 ## Decisions
 | ID | Título | Reversibility |
@@ -53,8 +54,10 @@ TicketFlow: portfolio backend de venta de entradas para eventos de alta demanda 
 | D-0020 | CI V2: scripts/ci.ps1 (etapas con culpable + -Demos) + workflow GH Actions invoca el mismo script + paginación de DLQ (F-V1-R3-01) | easy |
 | D-0021 | G4 aprobado: V2 entregada + v0.3.0 + cierre de corrida | easy |
 | D-0022 | Terraform contra el emulador leyendo el manifiesto (enmienda rechazo de D-0019) | easy |
+| D-0023 | Gate NFR-7 con allowlist opt-in de UN host (AWS_EMULATOR_ALLOWED_HOST) + SERVICE_HOST + S3 path-style | easy |
 
 ## Evidence
+- 2026-11-21-S15-n4004-verification.md — S15/N-4004 (contenedores): run-docker 4 imágenes + 4 contenedores, compra aprobada/rechazada + Lambda OK, imagen sin secretos y no root, suite 203/203 x2. Bug: S3 virtual-hosted con host por nombre → ForcePathStyle.
 - 2026-11-21-S14-n4003-verification.md — S14/N-4003 (EKS): apply 11 added, cluster+nodegroup ACTIVE, plan sin drift, regresión OK. Hallazgos: API k8s emulada en puerto aleatorio interno al contenedor, acepta pods pero quedan Failed (no corre contenedores), DELETE de pods no permitido; Kubernetes de Docker Desktop no habilitado.
 - 2026-11-21-S13-n4002-verification.md — S13/N-4002 (Lambda): apply 6 added + plan sin drift; compra de 2 asientos → 2 notificaciones JSON en CloudWatch Logs; unittest 4/4 (encontró bug key null). Sondeo: el emulador valida IAM del rol (SQS→Lambda exige policy), S3→Lambda OK, dotnet runtime sin probar ejecución.
 - 2026-11-21-S12-n4001-verification.md — S12/N-4001 (Terraform): apply from scratch 15 added + Provision --verify 15/15 OK + plan sin drift, en emulador vacío aparte :9298 y luego en el principal recreado; AC5 OK (run-local → TICKETS_ISSUED, 500→499). Incluye sondeo del emulador: Lambda invoke OK, EKS control plane ACTIVE (API k8s no alcanzable desde host), SQS→Lambda mapping falló.

@@ -40,7 +40,9 @@ builder.Services.ConfigureHttpJsonOptions(o =>
     o.SerializerOptions.PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower);
 
 var port = Environment.GetEnvironmentVariable("SERVICE_PORT") ?? "5080"; // D-0008: Catálogo = 5080
-builder.WebHost.UseUrls($"http://localhost:{port}");
+// SERVICE_HOST=0.0.0.0 en contenedores (D-0023); localhost por defecto: no expone el servicio a la red.
+var host = Environment.GetEnvironmentVariable("SERVICE_HOST") ?? "localhost";
+builder.WebHost.UseUrls($"http://{host}:{port}");
 
 var app = builder.Build();
 
