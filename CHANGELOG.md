@@ -26,6 +26,14 @@ versionado [SemVer](https://semver.org/lang/es/).
   Deployments con probes y límites, 4 Services) sobre un cluster kind (`infra/k8s/kind.yaml`),
   desplegado con `scripts/run-k8s.ps1`. Credenciales en un Secret y CA en un ConfigMap
   creados desde el entorno, nunca versionados.
+- **Caso de estudio para portfolio** (N-4006): `docs/portfolio.html`, página única sin
+  dependencias (tema claro/oscuro, responsive) con arquitectura, demo guiada sobre una
+  corrida real (`docs/portfolio-run.txt`), decisiones, bugs, calidad y límites.
+
+### Corregido
+
+- `scripts/emulator-env.ps1`: tras reiniciar el contenedor del emulador se copiaba la CA
+  vieja antes de que se regenerara y el health check fallaba; ahora se recopia en el reintento.
 
 ### Cambiado
 

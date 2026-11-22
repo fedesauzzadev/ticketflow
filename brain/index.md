@@ -29,6 +29,7 @@ TicketFlow: portfolio backend de venta de entradas para eventos de alta demanda 
 | N-4003 | EKS en Terraform: VPC + 2 subnets + roles IAM + cluster + managed node group (control plane) | feature | M | verified | depends_on N-4001 · slice v3 · evidencia 2026-11-21-S14 |
 | N-4004 | Los 4 servicios en contenedores: Dockerfile único + compose (perfil services) + allowlist de host | feature | M | verified | slice v3 · → D-0023 · evidencia 2026-11-21-S15 (203/203) |
 | N-4005 | Los 4 servicios en Kubernetes local (kind): Deployments + Services + Secret/ConfigMap | feature | M | verified | depends_on N-4004 · slice v3 · evidencia 2026-11-21-S16 |
+| N-4006 | Caso de estudio para portfolio (docs/portfolio.html, corrida real) + fix carrera de CA en emulator-env | feature | S | verified (smoke) | depends_on N-4005 · slice v3 · evidencia docs/portfolio-run.txt |
 
 ## Decisions
 | ID | Título | Reversibility |

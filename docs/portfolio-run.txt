@@ -1,0 +1,198 @@
+
+### kubectl get deploy,pods,svc
+NAME                        READY   UP-TO-DATE   AVAILABLE   AGE
+deployment.apps/catalog     1/1     1            1           14h
+deployment.apps/orders      1/1     1            1           14h
+deployment.apps/payments    1/1     1            1           14h
+deployment.apps/ticketing   1/1     1            1           14h
+
+NAME                             READY   STATUS    RESTARTS   AGE
+pod/catalog-5655bd99f9-6w889     1/1     Running   0          33s
+pod/orders-5867b6fbcf-pzg8c      1/1     Running   0          33s
+pod/payments-7d5f68d7bc-5cbq5    1/1     Running   0          33s
+pod/ticketing-75f4dc88c5-g29mp   1/1     Running   0          33s
+
+NAME                TYPE       CLUSTER-IP      EXTERNAL-IP   PORT(S)          AGE
+service/catalog     NodePort   10.96.176.183   <none>        5080:30080/TCP   14h
+service/orders      NodePort   10.96.247.2     <none>        5081:30081/TCP   14h
+service/payments    NodePort   10.96.226.109   <none>        5082:30082/TCP   14h
+service/ticketing   NodePort   10.96.81.25     <none>        5083:30083/TCP   14h
+
+### terraform state list
+data.archive_file.notifier
+aws_cloudwatch_log_group.notifier
+aws_dynamodb_table.this["catalog_events"]
+aws_dynamodb_table.this["orders_idempotency"]
+aws_dynamodb_table.this["orders_outbox"]
+aws_dynamodb_table.this["payments"]
+aws_dynamodb_table.this["purchases"]
+aws_dynamodb_table.this["tickets"]
+aws_eks_cluster.this
+aws_eks_node_group.default
+aws_iam_role.eks_cluster
+aws_iam_role.eks_node
+aws_iam_role.notifier
+aws_iam_role_policy.notifier_logs
+aws_iam_role_policy_attachment.eks_cluster
+aws_iam_role_policy_attachment.eks_node["AmazonEC2ContainerRegistryReadOnly"]
+aws_iam_role_policy_attachment.eks_node["AmazonEKSWorkerNodePolicy"]
+aws_iam_role_policy_attachment.eks_node["AmazonEKS_CNI_Policy"]
+aws_lambda_function.notifier
+aws_lambda_permission.s3_invoke
+aws_s3_bucket.this["ticketflow-tickets"]
+aws_s3_bucket_notification.qr_created
+aws_sqs_queue.this["ticketflow-catalog-commands-dlq.fifo"]
+aws_sqs_queue.this["ticketflow-catalog-commands.fifo"]
+aws_sqs_queue.this["ticketflow-orders-events-dlq.fifo"]
+aws_sqs_queue.this["ticketflow-orders-events.fifo"]
+aws_sqs_queue.this["ticketflow-payments-commands-dlq.fifo"]
+aws_sqs_queue.this["ticketflow-payments-commands.fifo"]
+aws_sqs_queue.this["ticketflow-ticketing-commands-dlq.fifo"]
+aws_sqs_queue.this["ticketflow-ticketing-commands.fifo"]
+aws_subnet.eks["us-east-1a"]
+aws_subnet.eks["us-east-1b"]
+aws_vpc.eks
+
+### aws eks describe-cluster
+{
+    "name": "ticketflow",
+    "status": "ACTIVE",
+    "version": "1.36",
+    "subnets": [
+        "subnet-000000000000000ab",
+        "subnet-000000000000000a9"
+    ],
+    "role": "arn:aws:iam::000000000000:role/ticketflow-eks-cluster"
+}
+
+### aws eks describe-nodegroup
+{
+    "status": "ACTIVE",
+    "scaling": {
+        "minSize": 1,
+        "maxSize": 3,
+        "desiredSize": 2
+    },
+    "instanceTypes": [
+        "t3.medium"
+    ],
+    "nodeRole": "arn:aws:iam::000000000000:role/ticketflow-eks-node"
+}
+
+### aws lambda get-function-configuration
+{
+    "name": "ticketflow-ticket-notifier",
+    "runtime": "python3.12",
+    "handler": "handler.handler",
+    "state": "Active",
+    "role": "arn:aws:iam::000000000000:role/ticketflow-ticket-notifier-role",
+    "timeout": 5
+}
+
+### aws s3api get-bucket-notification-configuration
+{
+    "LambdaFunctionConfigurations": [
+        {
+            "Id": "tf-s3-lambda-20261122140104118500000001",
+            "LambdaFunctionArn": "arn:aws:lambda:us-east-1:000000000000:function:ticketflow-ticket-notifier",
+            "Events": [
+                "s3:ObjectCreated:*"
+            ],
+            "Filter": {
+                "Key": {
+                    "FilterRules": [
+                        {
+                            "Name": "Prefix",
+                            "Value": "qr/"
+                        },
+                        {
+                            "Name": "Suffix",
+                            "Value": ".json"
+                        }
+                    ]
+                }
+            }
+        }
+    ]
+}
+
+### POST /purchases (aprobada, 2 asientos)
+HTTP 201 {"purchase_id":"pur-fc4dd25377ff42359e78fbeace361b0d","status":"PENDING","created_at":"2026-11-22T14:03:17.4862019+00:00"}
+t+ 2169 ms  PENDING
+t+ 2454 ms  SEATS_RESERVED
+t+ 2594 ms  PAYMENT_APPROVED
+t+ 2865 ms  TICKETS_ISSUED
+
+### GET /purchases/{id}
+{
+    "purchase_id":  "pur-fc4dd25377ff42359e78fbeace361b0d",
+    "status":  "TICKETS_ISSUED",
+    "ticket_ids":  [
+                       "tkt-6f3e253407b84962a0b7d0acc4617a9f",
+                       "tkt-6fec6ce8532046d3a7348737aac7cee3"
+                   ],
+    "created_at":  "2026-11-22T14:03:17.4862019+00:00"
+}
+
+### GET /payments/{id}
+{
+    "purchase_id":  "pur-fc4dd25377ff42359e78fbeace361b0d",
+    "status":  "APPROVED",
+    "amount":  241
+}
+
+### GET /tickets/{ticket}
+{
+    "id":  "tkt-6f3e253407b84962a0b7d0acc4617a9f",
+    "purchase_id":  "pur-fc4dd25377ff42359e78fbeace361b0d",
+    "event_id":  "evt-mj-tribute-night",
+    "seat":  1,
+    "qr_s3_key":  "qr/pur-fc4dd25377ff42359e78fbeace361b0d/tkt-6f3e253407b84962a0b7d0acc4617a9f.json"
+}
+
+### availability
+500 -> 498
+
+### lambda-logs.ps1 pur-fc4dd25377ff42359e78fbeace361b0d
+{"notification": "tickets-issued", "purchase_id": "pur-fc4dd25377ff42359e78fbeace361b0d", "ticket_id": "tkt-6f3e253407b84962a0b7d0acc4617a9f", "bucket": "ticketflow-tickets"}
+{"notification": "tickets-issued", "purchase_id": "pur-fc4dd25377ff42359e78fbeace361b0d", "ticket_id": "tkt-6fec6ce8532046d3a7348737aac7cee3", "bucket": "ticketflow-tickets"}
+
+### traza distribuida: kubectl logs (4 deployments) | grep pur-fc4dd25377ff42359e78fbeace361b0d
+orders	{"Timestamp":"2026-11-22T14:03:17.5073007Z","EventId":0,"LogLevel":"Information","Category":"Program","Message":"compra pur-fc4dd25377ff42359e78fbeace361b0d creada PENDING para evt-mj-tribute-night x2 (key portfolio-20e27a6f2991419dbee1e50ed10ef63a)","State":{"PurchaseId":"pur-fc4dd25377ff42359e78fbeace361b0d","EventId":"evt-mj-tribute-night","Seats":2,"Key":"portfolio-20e27a6f2991419dbee1e50ed10ef63a","{OriginalFormat}":"compra {PurchaseId} creada PENDING para {EventId} x{Seats} (key {Key})"}}
+orders	{"Timestamp":"2026-11-22T14:03:17.6658097Z","EventId":0,"LogLevel":"Information","Category":"TicketFlow.Orders.Api.OutboxRelayWorker","Message":"outbox publicado: \u0027reserve-seats\u0027 de compra pur-fc4dd25377ff42359e78fbeace361b0d \u2192 ticketflow-catalog-commands.fifo","State":{"Type":"reserve-seats","PurchaseId":"pur-fc4dd25377ff42359e78fbeace361b0d","Queue":"ticketflow-catalog-commands.fifo","{OriginalFormat}":"outbox publicado: \u0027{Type}\u0027 de compra {PurchaseId} \u2192 {Queue}"}}
+orders	{"Timestamp":"2026-11-22T14:03:17.8026072Z","EventId":0,"LogLevel":"Information","Category":"TicketFlow.Orders.Core.Application.SagaProcessManager","Message":"compra pur-fc4dd25377ff42359e78fbeace361b0d: paso \u0027seats-reserved\u0027 \u2192 SEATS_RESERVED; emito authorize-payment","State":{"PurchaseId":"pur-fc4dd25377ff42359e78fbeace361b0d","{OriginalFormat}":"compra {PurchaseId}: paso \u0027seats-reserved\u0027 \u2192 SEATS_RESERVED; emito authorize-payment"}}
+orders	{"Timestamp":"2026-11-22T14:03:17.8741402Z","EventId":0,"LogLevel":"Information","Category":"TicketFlow.Orders.Api.OutboxRelayWorker","Message":"outbox publicado: \u0027authorize-payment\u0027 de compra pur-fc4dd25377ff42359e78fbeace361b0d \u2192 ticketflow-payments-commands.fifo","State":{"Type":"authorize-payment","PurchaseId":"pur-fc4dd25377ff42359e78fbeace361b0d","Queue":"ticketflow-payments-commands.fifo","{OriginalFormat}":"outbox publicado: \u0027{Type}\u0027 de compra {PurchaseId} \u2192 {Queue}"}}
+orders	{"Timestamp":"2026-11-22T14:03:17.9767635Z","EventId":0,"LogLevel":"Information","Category":"TicketFlow.Orders.Core.Application.SagaProcessManager","Message":"compra pur-fc4dd25377ff42359e78fbeace361b0d: paso \u0027payment-approved\u0027 \u2192 PAYMENT_APPROVED; emito issue-tickets","State":{"PurchaseId":"pur-fc4dd25377ff42359e78fbeace361b0d","{OriginalFormat}":"compra {PurchaseId}: paso \u0027payment-approved\u0027 \u2192 PAYMENT_APPROVED; emito issue-tickets"}}
+orders	{"Timestamp":"2026-11-22T14:03:18.0862122Z","EventId":0,"LogLevel":"Information","Category":"TicketFlow.Orders.Api.OutboxRelayWorker","Message":"outbox publicado: \u0027issue-tickets\u0027 de compra pur-fc4dd25377ff42359e78fbeace361b0d \u2192 ticketflow-ticketing-commands.fifo","State":{"Type":"issue-tickets","PurchaseId":"pur-fc4dd25377ff42359e78fbeace361b0d","Queue":"ticketflow-ticketing-commands.fifo","{OriginalFormat}":"outbox publicado: \u0027{Type}\u0027 de compra {PurchaseId} \u2192 {Queue}"}}
+orders	{"Timestamp":"2026-11-22T14:03:18.2446154Z","EventId":0,"LogLevel":"Information","Category":"TicketFlow.Orders.Core.Application.SagaProcessManager","Message":"compra pur-fc4dd25377ff42359e78fbeace361b0d: paso \u0027tickets-issued\u0027 \u2192 TICKETS_ISSUED \u2014 saga completa","State":{"PurchaseId":"pur-fc4dd25377ff42359e78fbeace361b0d","{OriginalFormat}":"compra {PurchaseId}: paso \u0027tickets-issued\u0027 \u2192 TICKETS_ISSUED \u2014 saga completa"}}
+catalog	{"Timestamp":"2026-11-22T14:03:17.7352468Z","EventId":0,"LogLevel":"Information","Category":"TicketFlow.Catalog.Core.Application.CatalogSagaHandler","Message":"compra pur-fc4dd25377ff42359e78fbeace361b0d: paso \u0027reserve-seats\u0027 \u2192 2 asiento(s) reservado(s) para evt-mj-tribute-night @ 120.5: emito seats-reserved","State":{"PurchaseId":"pur-fc4dd25377ff42359e78fbeace361b0d","Seats":2,"EventId":"evt-mj-tribute-night","UnitPrice":120.5,"{OriginalFormat}":"compra {PurchaseId}: paso \u0027reserve-seats\u0027 \u2192 {Seats} asiento(s) reservado(s) para {EventId} @ {UnitPrice}: emito seats-reserved"}}
+payments	{"Timestamp":"2026-11-22T14:03:17.9192235Z","EventId":0,"LogLevel":"Information","Category":"TicketFlow.Payments.Core.Application.PaymentsSagaHandler","Message":"compra pur-fc4dd25377ff42359e78fbeace361b0d: paso \u0027authorize-payment\u0027 \u2192 APPROVED (-): emito payment-approved","State":{"PurchaseId":"pur-fc4dd25377ff42359e78fbeace361b0d","Decision":"APPROVED","Reason":"-","Evento":"payment-approved","{OriginalFormat}":"compra {PurchaseId}: paso \u0027authorize-payment\u0027 \u2192 {Decision} ({Reason}): emito {Evento}"}}
+ticketing	{"Timestamp":"2026-11-22T14:03:18.1985866Z","EventId":0,"LogLevel":"Information","Category":"TicketFlow.Ticketing.Core.Application.TicketingSagaHandler","Message":"NOTIFICACI\u00D3N (evento interno): 2 entradas emitidas para compra pur-fc4dd25377ff42359e78fbeace361b0d del evento evt-mj-tribute-night \u2014 ids tkt-6f3e253407b84962a0b7d0acc4617a9f, tkt-6fec6ce8532046d3a7348737aac7cee3","State":{"Count":2,"PurchaseId":"pur-fc4dd25377ff42359e78fbeace361b0d","EventId":"evt-mj-tribute-night","Ids":"System.Collections.Generic.List\u00601[System.String]","{OriginalFormat}":"NOTIFICACI\u00D3N (evento interno): {Count} entradas emitidas para compra {PurchaseId} del evento {EventId} \u2014 ids {Ids}"}}
+
+### POST /purchases (PAN ...0002, rechazada)
+t+    5 ms  PENDING
+t+  189 ms  SEATS_RESERVED
+t+  597 ms  FAILED
+{
+    "purchase_id":  "pur-e65bcea30eee4b748503939913f90f96",
+    "status":  "FAILED",
+    "reason":  "pago rechazado por el emisor (PAN terminada en 0002)",
+    "created_at":  "2026-11-22T14:03:30.5073879+00:00"
+}
+availability 250 -> 250
+
+### cache X-Cache
+HIT {"event_id":"evt-legacy-tour","available":250}
+HIT {"event_id":"evt-legacy-tour","available":250}
+
+### kubectl delete pod -l app=ticketing
+ticketing-75f4dc88c5-g29mp   1/1   Running   0     64s
+pod "ticketing-75f4dc88c5-g29mp" deleted from ticketflow namespace
+deployment "ticketing" successfully rolled out
+ticketing-75f4dc88c5-k2gfl   1/1   Running   0     6s
+
+### docker images
+ticketflow-payments:latest  370MB
+ticketflow-orders:latest  370MB
+ticketflow-catalog:latest  371MB
+ticketflow-ticketing:latest  370MB

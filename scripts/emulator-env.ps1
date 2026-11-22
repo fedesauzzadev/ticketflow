@@ -51,6 +51,9 @@ for ($i = 0; $i -lt 30; $i++) {
     $health = (& $curlBin -s --cacert $caPath https://localhost:9297/__admin/health) -join ''
     if ($health -eq 'ok') { break }
     Start-Sleep -Milliseconds 500
+    # Reinicio de un contenedor existente: la CA vieja sigue en su disco hasta que el emulador
+    # la regenera, y el cp de arriba pudo haberla copiado -> recopiar mientras el health falle.
+    docker cp "${container}:/home/emulator/.aws/emulator/9297/ca.pem" $caPath 2>$null
 }
 if ($health -ne 'ok') { throw "El emulador no pasa el health check en https://localhost:9297 (última respuesta: '$health')." }
 

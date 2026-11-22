@@ -1,0 +1,611 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>TicketFlow — caso de estudio</title>
+<meta name="description" content="Backend de venta de entradas de alta demanda: 4 microservicios .NET 10 con saga, sobre DynamoDB, SQS, S3, Lambda y EKS, con Terraform, Docker y Kubernetes. Todo reproducible en local.">
+<style>
+:root{
+  --bg:#fbfaf7;--surface:#fff;--sunken:#f3f1ec;--line:#e3dfd6;--tx:#1b1a17;--mut:#6a665d;
+  --acc:#b4530a;--acc-soft:#fbeedd;--ok:#1d7a46;--ok-soft:#e3f3e9;--bad:#b3261e;--bad-soft:#fbe9e7;
+  --info:#27548a;--info-soft:#e6eef8;--code-bg:#17181c;--code-tx:#dfe2ea;--code-mut:#8c93a3;--code-ok:#7fd49b;--code-acc:#f2b872;
+  --shadow:0 1px 2px rgba(27,26,23,.05),0 8px 24px rgba(27,26,23,.05);
+  color-scheme:light;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --bg:#111214;--surface:#191b1f;--sunken:#14161a;--line:#2a2d34;--tx:#eceae4;--mut:#9a9689;
+  --acc:#f0a35a;--acc-soft:#33261a;--ok:#6fcf93;--ok-soft:#16291e;--bad:#f08a80;--bad-soft:#331c1a;
+  --info:#8fb8ea;--info-soft:#18253a;--code-bg:#0c0d10;--shadow:none;color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#111214;--surface:#191b1f;--sunken:#14161a;--line:#2a2d34;--tx:#eceae4;--mut:#9a9689;
+  --acc:#f0a35a;--acc-soft:#33261a;--ok:#6fcf93;--ok-soft:#16291e;--bad:#f08a80;--bad-soft:#331c1a;
+  --info:#8fb8ea;--info-soft:#18253a;--code-bg:#0c0d10;--shadow:none;color-scheme:dark}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth;scroll-padding-top:72px}
+@media (prefers-reduced-motion:reduce){html{scroll-behavior:auto}}
+body{margin:0;background:var(--bg);color:var(--tx);font:16px/1.65 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;-webkit-text-size-adjust:100%}
+a{color:var(--acc);text-underline-offset:3px}
+a:focus-visible,button:focus-visible,pre:focus-visible,summary:focus-visible{outline:2px solid var(--acc);outline-offset:2px;border-radius:4px}
+code,pre,.mono{font-family:ui-monospace,"Cascadia Code",Consolas,Menlo,monospace}
+code{font-size:.88em;background:var(--sunken);border:1px solid var(--line);border-radius:5px;padding:.08em .35em}
+.wrap{max-width:1180px;margin:0 auto;padding:0 16px}
+
+/* barra superior */
+.top{position:sticky;top:0;z-index:5;background:color-mix(in srgb,var(--bg) 88%,transparent);backdrop-filter:blur(10px);border-bottom:1px solid var(--line)}
+.top .wrap{display:flex;align-items:center;gap:14px;height:56px}
+.brand{font-weight:700;letter-spacing:-.01em;white-space:nowrap}
+.brand span{color:var(--acc)}
+.top nav{display:flex;gap:4px;overflow-x:auto;flex:1;scrollbar-width:none}
+.top nav::-webkit-scrollbar{display:none}
+.top nav a{color:var(--mut);text-decoration:none;font-size:14px;padding:6px 10px;border-radius:7px;white-space:nowrap}
+.top nav a:hover{color:var(--tx)}
+.top nav a[aria-current="true"]{color:var(--tx);background:var(--sunken)}
+.theme{border:1px solid var(--line);background:var(--surface);color:var(--tx);border-radius:8px;padding:6px 10px;font:inherit;font-size:13px;cursor:pointer;white-space:nowrap}
+
+/* hero */
+.hero{padding:64px 0 36px}
+.eyebrow{font-size:13px;font-weight:600;letter-spacing:.09em;text-transform:uppercase;color:var(--acc)}
+h1{font-size:clamp(2rem,5vw,3.3rem);line-height:1.08;letter-spacing:-.03em;margin:.35em 0 .4em;max-width:19ch}
+.lead{font-size:clamp(1.02rem,1.6vw,1.2rem);color:var(--mut);max-width:66ch;margin:0}
+.lead strong{color:var(--tx);font-weight:600}
+.cta{display:flex;flex-wrap:wrap;gap:10px;margin-top:26px}
+.btn{display:inline-block;text-decoration:none;font-weight:600;font-size:15px;padding:10px 16px;border-radius:9px;border:1px solid var(--line);background:var(--surface);color:var(--tx)}
+.btn.primary{background:var(--tx);color:var(--bg);border-color:var(--tx)}
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:1px;background:var(--line);border:1px solid var(--line);border-radius:14px;overflow:hidden;margin-top:40px;box-shadow:var(--shadow)}
+.stat{background:var(--surface);padding:18px 18px 16px}
+.stat b{display:block;font-size:1.9rem;line-height:1.1;letter-spacing:-.02em;font-variant-numeric:tabular-nums}
+.stat span{font-size:13px;color:var(--mut)}
+.chips{display:flex;flex-wrap:wrap;gap:6px;margin-top:22px;padding:0;list-style:none}
+.chips li{font-size:12.5px;border:1px solid var(--line);background:var(--surface);border-radius:99px;padding:3px 11px;color:var(--mut)}
+
+/* secciones */
+section{padding:52px 0;border-top:1px solid var(--line)}
+h2{font-size:clamp(1.45rem,2.6vw,1.9rem);letter-spacing:-.02em;line-height:1.2;margin:0 0 .3em}
+h3{font-size:1.05rem;margin:0 0 .35em;letter-spacing:-.005em}
+.intro{color:var(--mut);max-width:70ch;margin:0 0 26px}
+.grid{display:grid;gap:14px;grid-template-columns:repeat(auto-fit,minmax(min(100%,300px),1fr))}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:20px;box-shadow:var(--shadow)}
+.card p{margin:.2em 0 0;color:var(--mut);font-size:15px}
+.card p+p{margin-top:.6em}
+.where{display:block;margin-top:12px;font-size:13px;color:var(--mut)}
+.tag{display:inline-block;font-size:11.5px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;border-radius:6px;padding:2px 8px;margin-bottom:10px;background:var(--acc-soft);color:var(--acc)}
+.tag.ok{background:var(--ok-soft);color:var(--ok)} .tag.bad{background:var(--bad-soft);color:var(--bad)} .tag.info{background:var(--info-soft);color:var(--info)}
+
+/* diagrama */
+.diagram{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:14px;overflow-x:auto;box-shadow:var(--shadow)}
+.diagram svg{display:block;min-width:760px;width:100%;height:auto}
+.d-box{fill:var(--surface);stroke:var(--line);stroke-width:1.5}
+.d-svc{fill:var(--info-soft);stroke:var(--info);stroke-width:1.5}
+.d-aws{fill:var(--acc-soft);stroke:var(--acc);stroke-width:1.5}
+.d-zone{fill:none;stroke:var(--mut);stroke-width:1.2;stroke-dasharray:6 5}
+.d-line{stroke:var(--mut);stroke-width:1.6;fill:none}
+.d-t{fill:var(--tx);font:600 14px system-ui,sans-serif}
+.d-s{fill:var(--mut);font:12px system-ui,sans-serif}
+.d-z{fill:var(--mut);font:600 11.5px system-ui,sans-serif;letter-spacing:.06em;text-transform:uppercase}
+.caption{font-size:14px;color:var(--mut);margin:12px 2px 0;max-width:80ch}
+
+/* demo */
+.steps{counter-reset:step;display:grid;gap:18px;margin:0;padding:0;list-style:none}
+.step{display:grid;grid-template-columns:minmax(0,1fr);gap:0;background:var(--surface);border:1px solid var(--line);border-radius:14px;overflow:hidden;box-shadow:var(--shadow)}
+.step-head{padding:20px 20px 14px}
+.step-head::before{counter-increment:step;content:counter(step,decimal-leading-zero);display:block;font:600 13px ui-monospace,Consolas,monospace;color:var(--acc);margin-bottom:4px}
+.step-head p{margin:.25em 0 0;color:var(--mut);font-size:15px;max-width:78ch}
+pre{margin:0;background:var(--code-bg);color:var(--code-tx);padding:16px 20px;overflow-x:auto;font-size:13px;line-height:1.6;tab-size:2}
+pre .c{color:var(--code-mut)} pre .g{color:var(--code-ok)} pre .a{color:var(--code-acc)}
+.step pre{border-top:1px solid var(--line)}
+.note{padding:12px 20px;font-size:14px;color:var(--mut);border-top:1px solid var(--line);background:var(--sunken)}
+.note strong{color:var(--tx)}
+
+/* tablas */
+.tablewrap{overflow-x:auto;border:1px solid var(--line);border-radius:14px;background:var(--surface);box-shadow:var(--shadow)}
+table{border-collapse:collapse;width:100%;font-size:14.5px}
+th,td{text-align:left;padding:10px 14px;border-bottom:1px solid var(--line);vertical-align:top}
+th{font-size:12px;letter-spacing:.06em;text-transform:uppercase;color:var(--mut);font-weight:600;background:var(--sunken);white-space:nowrap}
+tr:last-child td{border-bottom:0}
+td.num{font-variant-numeric:tabular-nums;white-space:nowrap}
+.svc{display:inline-block;font:600 12px ui-monospace,Consolas,monospace;border-radius:5px;padding:1px 7px;background:var(--info-soft);color:var(--info);white-space:nowrap}
+.step .tablewrap{border:0;border-top:1px solid var(--line);border-radius:0;box-shadow:none}
+
+/* decisiones */
+details{background:var(--surface);border:1px solid var(--line);border-radius:12px;box-shadow:var(--shadow)}
+details+details{margin-top:10px}
+summary{cursor:pointer;padding:16px 20px;font-weight:600;list-style-position:outside;margin-left:0}
+summary span{display:block;font-weight:400;color:var(--mut);font-size:14.5px;margin-top:2px}
+.dbody{padding:0 20px 18px;color:var(--mut);font-size:15px;max-width:82ch}
+.dbody p{margin:.5em 0 0} .dbody strong{color:var(--tx)}
+
+.cols{display:grid;gap:14px;grid-template-columns:repeat(auto-fit,minmax(min(100%,340px),1fr))}
+ul.plain{margin:.4em 0 0;padding-left:1.1em;color:var(--mut);font-size:15px}
+ul.plain li+li{margin-top:.35em}
+ul.plain strong{color:var(--tx)}
+footer{border-top:1px solid var(--line);padding:30px 0 60px;color:var(--mut);font-size:14px}
+@media print{.top,.theme,.cta{display:none}section{break-inside:avoid;padding:24px 0}pre{white-space:pre-wrap;border:1px solid #999}body{font-size:12px}}
+</style>
+</head>
+<body>
+
+<header class="top">
+  <div class="wrap">
+    <div class="brand">Ticket<span>Flow</span></div>
+    <nav aria-label="Secciones">
+      <a href="#resumen">Resumen</a>
+      <a href="#arquitectura">Arquitectura</a>
+      <a href="#demo">Demo</a>
+      <a href="#producto">Producto</a>
+      <a href="#decisiones">Decisiones</a>
+      <a href="#bugs">Bugs</a>
+      <a href="#calidad">Calidad</a>
+      <a href="#limites">Límites</a>
+      <a href="#correr">Correrlo</a>
+    </nav>
+    <button class="theme" type="button" id="theme" aria-label="Cambiar entre tema claro y oscuro">Tema</button>
+  </div>
+</header>
+
+<main class="wrap">
+
+<div class="hero" id="resumen">
+  <div class="eyebrow">Caso de estudio · backend distribuido sobre AWS</div>
+  <h1>Vender entradas sin vender dos veces el mismo asiento.</h1>
+  <p class="lead">TicketFlow es un backend de venta de entradas para eventos de alta demanda: <strong>4 microservicios .NET 10</strong> coordinados por una saga, sobre <strong>DynamoDB, SQS FIFO, S3, Lambda y EKS</strong>, con la infraestructura en <strong>Terraform</strong> y los servicios en <strong>Docker y Kubernetes</strong>. Corre completo en una laptop contra el emulador local de AWS, sin cuenta ni costo.</p>
+  <div class="cta">
+    <a class="btn primary" href="#demo">Ver la demo paso a paso</a>
+    <a class="btn" href="https://github.com/fedesauzzadev/ticketflow">Código en GitHub</a>
+    <a class="btn" href="https://github.com/fedesauzzadev/ticketflow/actions">CI</a>
+  </div>
+  <div class="stats" role="list">
+    <div class="stat" role="listitem"><b>203</b><span>tests automáticos, todos en verde</span></div>
+    <div class="stat" role="listitem"><b>32</b><span>recursos AWS en Terraform</span></div>
+    <div class="stat" role="listitem"><b>~760 ms</b><span>saga completa, 4 servicios</span></div>
+    <div class="stat" role="listitem"><b>0</b><span>asientos sobrevendidos bajo estrés</span></div>
+    <div class="stat" role="listitem"><b>3</b><span>formas de correrlo: procesos, Docker, Kubernetes</span></div>
+  </div>
+  <ul class="chips" aria-label="Tecnologías">
+    <li>.NET 10</li><li>AWS SDK v4</li><li>DynamoDB</li><li>SQS FIFO + DLQ</li><li>S3</li><li>Lambda (Python 3.12)</li><li>IAM</li><li>CloudWatch Logs</li><li>EKS</li><li>Terraform</li><li>Docker</li><li>Kubernetes (kind)</li><li>GitHub Actions</li><li>xUnit</li>
+  </ul>
+</div>
+
+<section aria-labelledby="h-que">
+  <h2 id="h-que">Qué demuestra este proyecto</h2>
+  <p class="intro">Cada punto está respaldado por algo que se puede ejecutar. La columna «dónde verlo» apunta al archivo o al paso de la demo.</p>
+  <div class="grid">
+    <div class="card"><span class="tag">Sistemas distribuidos</span><h3>Saga con compensación</h3><p>Reserva, pago y emisión coordinados por un orquestador. Si el pago falla, el asiento se libera solo y la compra termina en un estado explicable.</p><span class="where">Dónde verlo: demo, pasos 3 y 6 · <code>SagaProcessManager.cs</code></span></div>
+    <div class="card"><span class="tag">Consistencia</span><h3>Cero sobreventa e idempotencia</h3><p>Decremento atómico condicional en DynamoDB. La misma <code>Idempotency-Key</code> devuelve la misma compra, sin efectos nuevos.</p><span class="where">Dónde verlo: <code>scripts/stress-test.ps1</code> · <code>scripts/demo-idempotency.ps1</code></span></div>
+    <div class="card"><span class="tag">Infraestructura como código</span><h3>Terraform con una sola fuente de verdad</h3><p>32 recursos. Tablas, colas y bucket salen de un manifiesto JSON que también consume una herramienta .NET y que un test protege contra la deriva.</p><span class="where">Dónde verlo: demo, paso 1 · <code>infra/terraform/</code></span></div>
+    <div class="card"><span class="tag">Serverless</span><h3>Lambda disparada por eventos</h3><p>Guardar el QR en S3 dispara una función que notifica. Ningún servicio la invoca. Rol IAM de mínimo privilegio.</p><span class="where">Dónde verlo: demo, paso 5 · <code>infra/terraform/lambda.tf</code></span></div>
+    <div class="card"><span class="tag">Contenedores</span><h3>Docker y Kubernetes</h3><p>Un Dockerfile multi-stage para los 4 servicios. Deployments con probes y límites, Services con DNS, secretos fuera del repositorio.</p><span class="where">Dónde verlo: demo, pasos 2 y 7 · <code>infra/k8s/</code></span></div>
+    <div class="card"><span class="tag">Resiliencia</span><h3>Fallos inyectables y observables</h3><p>Reintentos con backoff, colas de mensajes muertos, circuit breaker y reservas con vencimiento. Todo se puede provocar a mano y mirar.</p><span class="where">Dónde verlo: <code>scripts/demo-resilience.ps1</code> · <code>scripts/demo-ttl.ps1</code></span></div>
+    <div class="card"><span class="tag">Observabilidad</span><h3>Traza distribuida por compra</h3><p>Un mismo identificador recorre los 4 servicios. La historia completa de una compra se reconstruye filtrando los logs.</p><span class="where">Dónde verlo: demo, paso 4</span></div>
+    <div class="card"><span class="tag">Seguridad</span><h3>Imposible llamar a AWS real por error</h3><p>El cliente solo acepta la autoridad certificadora del emulador y rechaza hosts no autorizados al arrancar. Sin secretos en el repositorio ni en las imágenes.</p><span class="where">Dónde verlo: <code>EmulatorAwsClients.cs</code> · <code>EmulatorHostGateTests.cs</code></span></div>
+    <div class="card"><span class="tag">Calidad</span><h3>CI y verificación adversarial</h3><p>Un comando corre build sin warnings, tests con umbral de cobertura y verificación de infraestructura. El mismo script corre en GitHub Actions.</p><span class="where">Dónde verlo: <code>scripts/ci.ps1</code> · sección Calidad</span></div>
+  </div>
+</section>
+
+<section id="arquitectura" aria-labelledby="h-arq">
+  <h2 id="h-arq">Arquitectura</h2>
+  <p class="intro">Los servicios no se llaman entre sí para avanzar una compra: se pasan comandos y eventos por colas SQS FIFO. Órdenes es el orquestador y el único que conoce el estado de la saga.</p>
+  <div class="diagram">
+    <svg viewBox="0 0 960 520" role="img" aria-labelledby="d-title d-desc">
+      <title id="d-title">Diagrama de arquitectura de TicketFlow</title>
+      <desc id="d-desc">Un cliente llama a Órdenes y Catálogo. Los cuatro servicios usan colas SQS FIFO, tablas DynamoDB y un bucket S3 dentro del emulador de AWS. El bucket dispara una función Lambda que escribe en CloudWatch Logs. Terraform declara todos los recursos, incluido un cluster EKS.</desc>
+      <defs><marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="var(--mut)"/></marker></defs>
+
+      <rect class="d-zone" x="170" y="28" width="212" height="464" rx="14"/>
+      <text class="d-z" x="184" y="48">Servicios · 3 modos</text>
+      <rect class="d-zone" x="418" y="28" width="528" height="464" rx="14"/>
+      <text class="d-z" x="432" y="48">Emulador AWS local · HTTPS + SigV4 + CA propia</text>
+
+      <rect class="d-box" x="14" y="218" width="116" height="74" rx="10"/>
+      <text class="d-t" x="72" y="250" text-anchor="middle">Cliente</text>
+      <text class="d-s" x="72" y="270" text-anchor="middle">HTTP + JSON</text>
+
+      <g>
+        <rect class="d-svc" x="190" y="64" width="172" height="78" rx="10"/>
+        <text class="d-t" x="276" y="96" text-anchor="middle">Órdenes :5081</text>
+        <text class="d-s" x="276" y="116" text-anchor="middle">orquestador de la saga</text>
+        <rect class="d-svc" x="190" y="172" width="172" height="78" rx="10"/>
+        <text class="d-t" x="276" y="204" text-anchor="middle">Catálogo :5080</text>
+        <text class="d-s" x="276" y="224" text-anchor="middle">asientos + cache</text>
+        <rect class="d-svc" x="190" y="280" width="172" height="78" rx="10"/>
+        <text class="d-t" x="276" y="312" text-anchor="middle">Pagos :5082</text>
+        <text class="d-s" x="276" y="332" text-anchor="middle">autoriza o rechaza</text>
+        <rect class="d-svc" x="190" y="388" width="172" height="78" rx="10"/>
+        <text class="d-t" x="276" y="420" text-anchor="middle">Ticketing :5083</text>
+        <text class="d-s" x="276" y="440" text-anchor="middle">emite entradas + QR</text>
+      </g>
+
+      <path class="d-line" d="M130 240 C150 240 150 103 188 103" marker-end="url(#arr)"/>
+      <path class="d-line" d="M130 262 C155 262 160 211 188 211" marker-end="url(#arr)"/>
+
+      <path class="d-line" d="M362 103H398M362 211H398M362 319H398M362 427H398M398 103V427"/>
+      <path class="d-line" d="M398 130H436" marker-end="url(#arr)"/>
+      <path class="d-line" d="M398 296H436" marker-end="url(#arr)"/>
+      <path class="d-line" d="M398 427H436" marker-end="url(#arr)"/>
+
+      <rect class="d-aws" x="438" y="64" width="170" height="150" rx="10"/>
+      <text class="d-t" x="523" y="100" text-anchor="middle">SQS FIFO</text>
+      <text class="d-s" x="523" y="124" text-anchor="middle">3 colas de comandos</text>
+      <text class="d-s" x="523" y="142" text-anchor="middle">1 cola de eventos</text>
+      <text class="d-s" x="523" y="160" text-anchor="middle">4 colas de mensajes</text>
+      <text class="d-s" x="523" y="178" text-anchor="middle">muertos (DLQ)</text>
+
+      <rect class="d-aws" x="438" y="240" width="170" height="112" rx="10"/>
+      <text class="d-t" x="523" y="276" text-anchor="middle">DynamoDB</text>
+      <text class="d-s" x="523" y="300" text-anchor="middle">6 tablas · escrituras</text>
+      <text class="d-s" x="523" y="318" text-anchor="middle">condicionales</text>
+
+      <rect class="d-aws" x="438" y="388" width="170" height="78" rx="10"/>
+      <text class="d-t" x="523" y="420" text-anchor="middle">S3</text>
+      <text class="d-s" x="523" y="440" text-anchor="middle">QR de cada entrada</text>
+
+      <path class="d-line" d="M608 427H650" marker-end="url(#arr)"/>
+      <rect class="d-aws" x="652" y="388" width="130" height="78" rx="10"/>
+      <text class="d-t" x="717" y="420" text-anchor="middle">Lambda</text>
+      <text class="d-s" x="717" y="440" text-anchor="middle">ticket-notifier</text>
+      <path class="d-line" d="M782 427H808" marker-end="url(#arr)"/>
+      <rect class="d-aws" x="810" y="388" width="122" height="78" rx="10"/>
+      <text class="d-t" x="871" y="420" text-anchor="middle">CloudWatch</text>
+      <text class="d-s" x="871" y="440" text-anchor="middle">Logs</text>
+      <text class="d-s" x="629" y="380" text-anchor="middle">evento</text>
+
+      <rect class="d-aws" x="652" y="64" width="280" height="112" rx="10"/>
+      <text class="d-t" x="792" y="98" text-anchor="middle">EKS · control plane</text>
+      <text class="d-s" x="792" y="122" text-anchor="middle">VPC · 2 subnets · 2 roles IAM</text>
+      <text class="d-s" x="792" y="140" text-anchor="middle">cluster + managed node group</text>
+
+      <rect class="d-box" x="652" y="206" width="280" height="146" rx="10"/>
+      <text class="d-t" x="792" y="240" text-anchor="middle">Terraform</text>
+      <text class="d-s" x="792" y="264" text-anchor="middle">declara los 32 recursos de esta zona</text>
+      <text class="d-s" x="792" y="282" text-anchor="middle">tablas, colas y bucket: for_each sobre</text>
+      <text class="d-s" x="792" y="300" text-anchor="middle">un manifiesto JSON compartido</text>
+      <text class="d-s" x="792" y="318" text-anchor="middle">con la herramienta de verificación .NET</text>
+    </svg>
+  </div>
+  <p class="caption">Los cuatro servicios usan SQS y DynamoDB; solo Ticketing escribe en S3. Los servicios corren como procesos locales, como contenedores Docker o como pods en un cluster Kubernetes local, siempre en los mismos puertos. El cluster EKS del emulador es solo control plane: está declarado y activo, pero no ejecuta contenedores.</p>
+</section>
+
+<section id="demo" aria-labelledby="h-demo">
+  <h2 id="h-demo">Demo guiada: una corrida real</h2>
+  <p class="intro">Todo lo que sigue es salida real, sin editar más que para acortar líneas largas, de una corrida del 22 de noviembre de 2026 partiendo de un emulador recién reiniciado (vacío). El registro completo está en <a href="portfolio-run.txt"><code>docs/portfolio-run.txt</code></a>.</p>
+
+  <ol class="steps">
+    <li class="step">
+      <div class="step-head"><h3>Infraestructura desde cero con Terraform</h3><p>Un comando crea las 6 tablas, las 8 colas, el bucket, la Lambda con su rol y su disparador, y el cluster EKS con su red. Un segundo <code>plan</code> confirma que lo real coincide con lo declarado.</p></div>
+<pre tabindex="0"><span class="c">PS&gt;</span> scripts\terraform.ps1 apply
+<span class="g">Apply complete! Resources: 32 added, 0 changed, 0 destroyed.</span>   <span class="c"># 87 s, emulador vacío</span>
+
+<span class="c">PS&gt;</span> scripts\terraform.ps1 plan -detailed-exitcode
+<span class="g">No changes. Your infrastructure matches the configuration.</span>     <span class="c"># exit 0</span>
+
+<span class="c">PS&gt;</span> terraform state list
+aws_dynamodb_table.this["catalog_events"]          <span class="c"># + 5 tablas más</span>
+aws_sqs_queue.this["ticketflow-orders-events.fifo"] <span class="c"># + 7 colas más</span>
+aws_s3_bucket.this["ticketflow-tickets"]
+aws_lambda_function.notifier
+aws_iam_role.notifier
+aws_iam_role_policy.notifier_logs
+aws_lambda_permission.s3_invoke
+aws_s3_bucket_notification.qr_created
+aws_cloudwatch_log_group.notifier
+aws_vpc.eks
+aws_subnet.eks["us-east-1a"]
+aws_subnet.eks["us-east-1b"]
+aws_iam_role.eks_cluster
+aws_iam_role.eks_node                               <span class="c"># + 4 policy attachments</span>
+aws_eks_cluster.this
+aws_eks_node_group.default</pre>
+      <div class="note"><strong>Por qué importa:</strong> el estado de Terraform apuntaba a recursos que ya no existían, porque el emulador guarda todo en memoria y se había reiniciado. Terraform lo detectó y recreó los 32 sin intervención.</div>
+    </li>
+
+    <li class="step">
+      <div class="step-head"><h3>Despliegue en Kubernetes</h3><p>El script construye las 4 imágenes, las carga en un cluster local, crea el Secret y los ConfigMaps a partir del entorno y espera a que cada Deployment esté disponible.</p></div>
+<pre tabindex="0"><span class="c">PS&gt;</span> scripts\run-k8s.ps1
+<span class="c">PS&gt;</span> kubectl -n ticketflow get deploy,pods,svc
+NAME                        READY   UP-TO-DATE   AVAILABLE
+deployment.apps/catalog     <span class="g">1/1</span>     1            1
+deployment.apps/orders      <span class="g">1/1</span>     1            1
+deployment.apps/payments    <span class="g">1/1</span>     1            1
+deployment.apps/ticketing   <span class="g">1/1</span>     1            1
+
+NAME                             READY   STATUS    RESTARTS
+pod/catalog-5655bd99f9-6w889     1/1     <span class="g">Running</span>   0
+pod/orders-5867b6fbcf-pzg8c      1/1     <span class="g">Running</span>   0
+pod/payments-7d5f68d7bc-5cbq5    1/1     <span class="g">Running</span>   0
+pod/ticketing-75f4dc88c5-g29mp   1/1     <span class="g">Running</span>   0
+
+NAME                TYPE       CLUSTER-IP      PORT(S)
+service/catalog     NodePort   10.96.176.183   5080:30080/TCP
+service/orders      NodePort   10.96.247.2     5081:30081/TCP
+service/payments    NodePort   10.96.226.109   5082:30082/TCP
+service/ticketing   NodePort   10.96.81.25     5083:30083/TCP</pre>
+    </li>
+
+    <li class="step">
+      <div class="step-head"><h3>Una compra aprobada, de punta a punta</h3><p>El cliente recibe la respuesta de inmediato con la compra en <code>PENDING</code>. La saga sigue en segundo plano y el cliente consulta el estado.</p></div>
+<pre tabindex="0"><span class="c">POST /purchases   Idempotency-Key: portfolio-20e2…   { event_id, seats: 2, card }</span>
+HTTP 201 {"purchase_id":"pur-fc4dd253…","status":"PENDING"}
+
+<span class="c">GET /purchases/pur-fc4dd253…   (consultado cada 40 ms)</span>
+PENDING  →  SEATS_RESERVED  →  PAYMENT_APPROVED  →  <span class="g">TICKETS_ISSUED</span>
+
+<span class="c">GET /purchases/pur-fc4dd253…</span>
+{ "status": "TICKETS_ISSUED",
+  "ticket_ids": ["tkt-6f3e2534…", "tkt-6fec6ce8…"] }
+
+<span class="c">GET /payments/pur-fc4dd253…</span>
+{ "status": "APPROVED", "amount": 241 }                 <span class="c"># 2 × 120,50</span>
+
+<span class="c">GET /tickets/tkt-6f3e2534…</span>
+{ "event_id": "evt-mj-tribute-night", "seat": 1,
+  "qr_s3_key": "qr/pur-fc4dd253…/tkt-6f3e2534….json" }   <span class="c"># objeto en S3</span>
+
+<span class="c">GET /events/evt-mj-tribute-night/availability</span>
+500 → <span class="g">498</span>                                               <span class="c"># exactamente 2 menos</span></pre>
+    </li>
+
+    <li class="step">
+      <div class="step-head"><h3>La misma compra, vista por dentro</h3><p>Los 4 servicios registran el identificador de la compra en cada paso. Filtrando los logs de los 4 Deployments por ese identificador y ordenando por hora queda la historia completa.</p></div>
+<pre tabindex="0"><span class="c">PS&gt;</span> kubectl -n ticketflow logs deploy/{orders,catalog,payments,ticketing} | grep pur-fc4dd253…</pre>
+      <div class="tablewrap">
+        <table>
+          <thead><tr><th scope="col">Tiempo</th><th scope="col">Servicio</th><th scope="col">Qué pasó</th></tr></thead>
+          <tbody>
+            <tr><td class="num">+21 ms</td><td><span class="svc">orders</span></td><td>Compra creada en <code>PENDING</code> para 2 asientos</td></tr>
+            <tr><td class="num">+180 ms</td><td><span class="svc">orders</span></td><td>Outbox publica <code>reserve-seats</code> en la cola de Catálogo</td></tr>
+            <tr><td class="num">+249 ms</td><td><span class="svc">catalog</span></td><td>2 asientos reservados con decremento condicional</td></tr>
+            <tr><td class="num">+316 ms</td><td><span class="svc">orders</span></td><td><code>SEATS_RESERVED</code>; emite <code>authorize-payment</code></td></tr>
+            <tr><td class="num">+433 ms</td><td><span class="svc">payments</span></td><td>Pago <code>APPROVED</code>; emite <code>payment-approved</code></td></tr>
+            <tr><td class="num">+491 ms</td><td><span class="svc">orders</span></td><td><code>PAYMENT_APPROVED</code>; emite <code>issue-tickets</code></td></tr>
+            <tr><td class="num">+712 ms</td><td><span class="svc">ticketing</span></td><td>2 entradas emitidas, QR guardados en S3</td></tr>
+            <tr><td class="num">+758 ms</td><td><span class="svc">orders</span></td><td><code>TICKETS_ISSUED</code>: saga completa</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="note">Tiempos relativos al <code>created_at</code> de la compra, tomados de los timestamps de los logs. Se omiten dos publicaciones intermedias del outbox.</div>
+    </li>
+
+    <li class="step">
+      <div class="step-head"><h3>La Lambda se dispara sola</h3><p>Nadie invoca la función. El bucket tiene una notificación para objetos nuevos bajo <code>qr/</code>, y cada QR guardado por Ticketing produce una ejecución. Dos entradas, dos notificaciones.</p></div>
+<pre tabindex="0"><span class="c">PS&gt;</span> aws s3api get-bucket-notification-configuration --bucket ticketflow-tickets
+{ "LambdaFunctionConfigurations": [{
+    "LambdaFunctionArn": "arn:aws:lambda:us-east-1:000000000000:function:ticketflow-ticket-notifier",
+    "Events": ["s3:ObjectCreated:*"],
+    "Filter": { "Key": { "FilterRules": [
+      { "Name": "Prefix", "Value": "qr/" }, { "Name": "Suffix", "Value": ".json" } ] } } }] }
+
+<span class="c">PS&gt;</span> scripts\lambda-logs.ps1 pur-fc4dd253…          <span class="c"># CloudWatch Logs</span>
+<span class="g">{"notification": "tickets-issued", "purchase_id": "pur-fc4dd253…", "ticket_id": "tkt-6f3e2534…", "bucket": "ticketflow-tickets"}
+{"notification": "tickets-issued", "purchase_id": "pur-fc4dd253…", "ticket_id": "tkt-6fec6ce8…", "bucket": "ticketflow-tickets"}</span></pre>
+    </li>
+
+    <li class="step">
+      <div class="step-head"><h3>Pago rechazado: la saga se deshace</h3><p>Una tarjeta terminada en <code>0002</code> simula un rechazo del emisor. El asiento ya estaba reservado; la saga emite la compensación y lo libera.</p></div>
+<pre tabindex="0"><span class="c">POST /purchases   { event_id: "evt-legacy-tour", seats: 1, card: { pan: "…0002" } }</span>
+
+t+   5 ms  PENDING
+t+ 189 ms  SEATS_RESERVED                               <span class="c"># el asiento se reservó</span>
+t+ 597 ms  <span class="a">FAILED</span>
+
+{ "status": "FAILED",
+  "reason": "pago rechazado por el emisor (PAN terminada en 0002)" }
+
+<span class="c">GET /events/evt-legacy-tour/availability</span>
+250 → <span class="g">250</span>                                               <span class="c"># el asiento volvió</span></pre>
+    </li>
+
+    <li class="step">
+      <div class="step-head"><h3>Kubernetes repone lo que se cae</h3><p>Se borra a mano el pod de Ticketing. El Deployment nota que falta una réplica y crea otra.</p></div>
+<pre tabindex="0"><span class="c">PS&gt;</span> kubectl -n ticketflow delete pod -l app=ticketing
+ticketing-75f4dc88c5-<span class="a">g29mp</span>   1/1   Running   0   64s
+pod "ticketing-75f4dc88c5-g29mp" deleted
+
+<span class="c">PS&gt;</span> kubectl -n ticketflow rollout status deployment/ticketing
+<span class="g">deployment "ticketing" successfully rolled out</span>
+ticketing-75f4dc88c5-<span class="a">k2gfl</span>   1/1   Running   0   6s    <span class="c"># pod nuevo</span></pre>
+    </li>
+
+    <li class="step">
+      <div class="step-head"><h3>El cluster EKS, declarado y activo</h3><p>Terraform crea lo que EKS exige antes del primer pod: red en dos zonas, un rol para el plano de control y otro para los nodos, y un grupo de nodos administrado con autoescalado.</p></div>
+<pre tabindex="0"><span class="c">PS&gt;</span> aws eks describe-cluster --name ticketflow
+{ "name": "ticketflow", "status": "<span class="g">ACTIVE</span>", "version": "1.36",
+  "subnets": ["subnet-…ab", "subnet-…a9"],
+  "role": "arn:aws:iam::000000000000:role/ticketflow-eks-cluster" }
+
+<span class="c">PS&gt;</span> aws eks describe-nodegroup --cluster-name ticketflow --nodegroup-name default
+{ "status": "<span class="g">ACTIVE</span>",
+  "scaling": { "minSize": 1, "maxSize": 3, "desiredSize": 2 },
+  "instanceTypes": ["t3.medium"],
+  "nodeRole": "arn:aws:iam::000000000000:role/ticketflow-eks-node" }</pre>
+      <div class="note"><strong>Alcance:</strong> en el emulador esto es solo el plano de control. Su API de Kubernetes acepta pods pero no los ejecuta, por eso los servicios corren en un cluster local aparte.</div>
+    </li>
+  </ol>
+</section>
+
+<section id="producto" aria-labelledby="h-prod">
+  <h2 id="h-prod">Lo que el producto garantiza</h2>
+  <p class="intro">Estas propiedades se midieron en corridas anteriores con los scripts de demo del repositorio. Las salidas completas están en <a href="demo-runs.md"><code>docs/demo-runs.md</code></a>.</p>
+  <div class="tablewrap">
+    <table>
+      <thead><tr><th scope="col">Propiedad</th><th scope="col">Cómo se probó</th><th scope="col">Resultado medido</th></tr></thead>
+      <tbody>
+        <tr><td><strong>Sin sobreventa</strong></td><td>20 compradores simultáneos sobre 5 asientos</td><td>5 compras emitidas, 15 rechazadas con motivo, disponibilidad final 0</td></tr>
+        <tr><td><strong>Idempotencia</strong></td><td>4 requests concurrentes con la misma clave</td><td>1 sola compra; el replay devuelve la misma, con las mismas entradas</td></tr>
+        <tr><td><strong>Cache observable</strong></td><td>Lecturas repetidas con el header <code>X-Cache</code></td><td><code>MISS</code>, luego <code>HIT</code>; una compra invalida y vuelve a <code>MISS</code></td></tr>
+        <tr><td><strong>Reintentos con backoff</strong></td><td>Fallo transitorio inyectado en un paso</td><td>Reintentos a los 510 ms y 1014 ms; la compra termina bien</td></tr>
+        <tr><td><strong>Circuit breaker</strong></td><td>Emulador pausado con <code>docker pause</code></td><td>Falla en 35 ms en lugar de esperar 10 s; se recupera solo</td></tr>
+        <tr><td><strong>Reserva con vencimiento</strong></td><td>Compra en espera sin pagar</td><td>Expira, libera el asiento, y el pago tardío recibe <code>409</code></td></tr>
+        <tr><td><strong>Latencia</strong></td><td>50 iteraciones tras calentamiento</td><td>p95: lectura cacheada 1,4 ms · alta de compra 20,7 ms · saga completa 790 ms</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section id="decisiones" aria-labelledby="h-dec">
+  <h2 id="h-dec">Decisiones de ingeniería</h2>
+  <p class="intro">Cada una tiene su registro en <code>brain/decisions/</code>, con el contexto y las alternativas descartadas. Estas son las que más cambiaron el diseño.</p>
+
+  <details open>
+    <summary>Un manifiesto, dos ejecutores<span>Terraform y la herramienta .NET leen la misma lista de recursos</span></summary>
+    <div class="dbody">
+      <p><strong>Problema.</strong> Los nombres de tablas y colas vivían en constantes del código, en un manifiesto JSON y, al sumar Terraform, iban a vivir en un tercer lugar.</p>
+      <p><strong>Decisión.</strong> El HCL no lista recursos: hace <code>for_each</code> sobre <code>jsondecode(file("aws-local.json"))</code>. Un test compara ese manifiesto contra las constantes del código y falla si alguno cambia sin el otro.</p>
+      <p><strong>Descartado.</strong> Escribir los 15 recursos a mano en HCL. Es lo habitual, pero duplica la lista y pide un segundo test de deriva.</p>
+    </div>
+  </details>
+  <details>
+    <summary>Saga por orquestación<span>Un servicio conoce el flujo; los demás solo ejecutan pasos</span></summary>
+    <div class="dbody">
+      <p><strong>Problema.</strong> Reservar, cobrar y emitir tocan tres servicios y cualquiera puede fallar a mitad de camino.</p>
+      <p><strong>Decisión.</strong> Órdenes es el orquestador: guarda el estado de cada compra y decide el paso siguiente o la compensación. Los mensajes salen por un outbox para no perder ninguno si el servicio se cae entre guardar y publicar.</p>
+      <p><strong>Descartado.</strong> Coreografía por eventos. Con cuatro servicios, el flujo quedaba repartido y era difícil responder «¿en qué estado está esta compra?».</p>
+    </div>
+  </details>
+  <details>
+    <summary>Lambda disparada por S3, no invocada por el servicio<span>Agregar la notificación no tocó una línea de .NET</span></summary>
+    <div class="dbody">
+      <p><strong>Problema.</strong> La notificación de «entradas emitidas» era un log interno, porque el fan-out de SNS no entrega mensajes en el emulador.</p>
+      <p><strong>Decisión.</strong> Ticketing ya guardaba un QR por entrada en S3. Una notificación del bucket dispara la Lambda. El servicio no sabe que la función existe.</p>
+      <p><strong>Descartado.</strong> Invocar la Lambda desde el servicio (acopla el camino crítico a la notificación) y una cola SQS nueva (obligaba a tocar el servicio y el manifiesto compartido).</p>
+    </div>
+  </details>
+  <details>
+    <summary>Dos barreras contra llamar a AWS real<span>Y cómo se abrió una, con cuidado, para los contenedores</span></summary>
+    <div class="dbody">
+      <p><strong>Problema.</strong> Un error de configuración no debe terminar en una llamada firmada contra AWS de verdad. Pero dentro de un contenedor el emulador deja de ser <code>localhost</code>, y la regla original rechazaba cualquier otro host.</p>
+      <p><strong>Decisión.</strong> Se mantiene la barrera dura: el cliente HTTP solo acepta una cadena TLS cuya raíz sea la autoridad certificadora del emulador. La barrera de host admite un único nombre extra, por variable de entorno, con coincidencia exacta y nunca un dominio de AWS. Sin la variable, todo se comporta como antes. 17 casos de test.</p>
+      <p><strong>Descartado.</strong> Quitar la validación de host y confiar solo en el certificado: pierde una capa y el mensaje de error claro al arrancar.</p>
+    </div>
+  </details>
+  <details>
+    <summary>Un Dockerfile para cuatro servicios<span>Mismo proceso de build, cuatro imágenes</span></summary>
+    <div class="dbody">
+      <p><strong>Decisión.</strong> Un Dockerfile multi-stage con un argumento de build elige el servicio. La imagen final lleva solo el runtime, corre como usuario sin privilegios y no contiene credenciales: entran por variables de entorno y el certificado se monta como volumen de solo lectura.</p>
+      <p><strong>Costo aceptado.</strong> Cualquier cambio en el código vuelve a restaurar dependencias. Está marcado en el archivo como atajo a revisar si el build empieza a ser lento.</p>
+    </div>
+  </details>
+  <details>
+    <summary>Kubernetes local en lugar del EKS del emulador<span>Decidido después de probarlo, no antes</span></summary>
+    <div class="dbody">
+      <p><strong>Problema.</strong> El emulador crea el cluster EKS y hasta expone una API de Kubernetes con los nodos registrados.</p>
+      <p><strong>Lo que se probó.</strong> Un pod de prueba fue aceptado y asignado a un nodo, pero terminó en <code>Failed</code>: no hay un runtime de contenedores detrás.</p>
+      <p><strong>Decisión.</strong> EKS queda declarado en Terraform para la parte de AWS (red, IAM, grupo de nodos). Los manifiestos, que son Kubernetes estándar, se despliegan en un cluster local. En EKS real cambiarían el origen de las imágenes y el tipo de Service.</p>
+    </div>
+  </details>
+</section>
+
+<section id="bugs" aria-labelledby="h-bugs">
+  <h2 id="h-bugs">Bugs reales encontrados en el camino</h2>
+  <p class="intro">Ninguno apareció leyendo código. Todos salieron de ejecutar el sistema, y cada uno dejó un test, una corrección en la causa o una regla documentada.</p>
+  <div class="grid">
+    <div class="card"><span class="tag bad">SDK</span><h3>El cliente hablaba con AWS real en silencio</h3><p><strong>Síntoma:</strong> errores TLS inexplicables contra el emulador.</p><p><strong>Causa:</strong> en el SDK v4, configurar región y URL a la vez hace que gane la región, y el tráfico sale al endpoint real.</p><p><strong>Corrección:</strong> URL más región de autenticación, y certificado pineado para que no pueda repetirse.</p></div>
+    <div class="card"><span class="tag bad">S3</span><h3>Ticketing no arrancaba en contenedores</h3><p><strong>Síntoma:</strong> <code>Name or service not known (ticketflow-tickets.host…)</code>.</p><p><strong>Causa:</strong> con el endpoint por IP el SDK usaba rutas tipo <code>host/bucket</code>; con un nombre de host pasa a <code>bucket.host</code>, que no existe.</p><p><strong>Corrección:</strong> forzar el estilo de ruta en el cliente S3 y volver a correr la suite completa.</p></div>
+    <div class="card"><span class="tag bad">Mensajería</span><h3>Una compra quedaba colgada para siempre</h3><p><strong>Síntoma:</strong> con dos fallos encadenados la compra nunca llegaba a un estado final.</p><p><strong>Causa:</strong> dos mensajes de fallo distintos compartían identificador de deduplicación y SQS FIFO descartaba el segundo sin avisar.</p><p><strong>Corrección:</strong> el paso fallado entra en el identificador. Tres tests que fallan sin el arreglo.</p></div>
+    <div class="card"><span class="tag bad">Lambda</span><h3>Una clave nula tiraba la función</h3><p><strong>Síntoma:</strong> excepción en el test de entradas hostiles, antes de desplegar.</p><p><strong>Causa:</strong> un evento con la clave del objeto en <code>null</code> llegaba hasta el decodificador de URL.</p><p><strong>Corrección:</strong> el evento malformado se ignora y se registra. Terraform redesplegó solo esa función.</p></div>
+    <div class="card"><span class="tag bad">IAM</span><h3>El disparador desde SQS era rechazado</h3><p><strong>Síntoma:</strong> error al asociar una cola a la Lambda.</p><p><strong>Causa:</strong> el rol de ejecución no tenía permiso para leer de la cola. El emulador valida IAM igual que AWS.</p><p><strong>Corrección:</strong> con la policy correcta funcionó, también con colas FIFO. Quedó documentado como material de estudio.</p></div>
+    <div class="card"><span class="tag bad">Scripts</span><h3>El arranque fallaba tras reiniciar Docker</h3><p><strong>Síntoma:</strong> el chequeo de salud del emulador fallaba por certificado.</p><p><strong>Causa:</strong> una carrera: el script copiaba el certificado viejo antes de que el emulador generara el nuevo.</p><p><strong>Corrección:</strong> volver a copiarlo mientras el chequeo falle. Reproducido reiniciando el contenedor a propósito.</p></div>
+  </div>
+</section>
+
+<section id="calidad" aria-labelledby="h-cal">
+  <h2 id="h-cal">Calidad</h2>
+  <p class="intro">Los tests de integración corren contra el emulador real, no contra dobles. El umbral de cobertura (70 % de líneas en la lógica de cada servicio) rompe el build si no se cumple.</p>
+  <div class="cols">
+    <div class="tablewrap">
+      <table>
+        <thead><tr><th scope="col">Suite</th><th scope="col">Tests</th><th scope="col">Líneas</th><th scope="col">Ramas</th></tr></thead>
+        <tbody>
+          <tr><td>Catálogo + infraestructura compartida</td><td class="num">81</td><td class="num">81,0 %</td><td class="num">74,3 %</td></tr>
+          <tr><td>Órdenes (saga, idempotencia, reservas)</td><td class="num">92</td><td class="num">89,3 %</td><td class="num">78,6 %</td></tr>
+          <tr><td>Pagos</td><td class="num">8</td><td class="num">94,8 %</td><td class="num">84,0 %</td></tr>
+          <tr><td>Ticketing</td><td class="num">5</td><td class="num">88,7 %</td><td class="num">76,2 %</td></tr>
+          <tr><td>Aprovisionamiento</td><td class="num">17</td><td class="num">86,5 %</td><td class="num">76,7 %</td></tr>
+          <tr><td><strong>Total</strong></td><td class="num"><strong>203</strong></td><td></td><td></td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="card">
+      <h3>Cómo se verifica cada entrega</h3>
+      <ul class="plain">
+        <li><strong>Criterios antes del código.</strong> Cada entrega tiene criterios de aceptación observables, escritos antes de empezar.</li>
+        <li><strong>Un comando para todo.</strong> <code>scripts/ci.ps1</code> corre build sin warnings, tests, cobertura y verificación de infraestructura, e informa qué etapa falló.</li>
+        <li><strong>El mismo script en la nube.</strong> GitHub Actions invoca ese script, sin lógica propia.</li>
+        <li><strong>Revisión adversarial.</strong> Las tres primeras versiones pasaron una ronda que intenta refutar cada criterio: datos hostiles, carreras, fallos dobles.</li>
+        <li><strong>Evidencia guardada.</strong> Cada verificación deja comando y resultado en <code>brain/evidence/</code>.</li>
+      </ul>
+      <p>Además: 4 tests del handler de la Lambda en Python, fuera de la suite .NET.</p>
+    </div>
+  </div>
+</section>
+
+<section id="limites" aria-labelledby="h-lim">
+  <h2 id="h-lim">Límites, dichos sin vueltas</h2>
+  <p class="intro">Esto es un emulador en una laptop. Saber dónde termina lo que se probó es parte del trabajo.</p>
+  <div class="cols">
+    <div class="card"><span class="tag info">Del emulador</span>
+      <ul class="plain">
+        <li><strong>EKS no ejecuta pods.</strong> Es plano de control; los servicios corren en un cluster local.</li>
+        <li><strong>SNS no entrega mensajes.</strong> El fan-out a colas falla; la notificación se resolvió con S3 y Lambda.</li>
+        <li><strong>El estado vive en memoria.</strong> Reiniciar el contenedor borra todo; Terraform lo recrea.</li>
+        <li><strong>Se satura con arranques simultáneos.</strong> Reiniciar los 4 servicios a la vez puede hacer que alguno falle su primer intento; Kubernetes lo relanza.</li>
+      </ul>
+    </div>
+    <div class="card"><span class="tag info">Del proyecto</span>
+      <ul class="plain">
+        <li><strong>Nunca corrió contra AWS real.</strong> Latencias, límites de servicio y costos reales no están medidos.</li>
+        <li><strong>Una réplica por servicio.</strong> Escalar horizontalmente los consumidores de la saga no está verificado.</li>
+        <li><strong>El CI no ejecuta Terraform, Docker ni Kubernetes.</strong> Esas partes están verificadas en local, con evidencia guardada.</li>
+        <li><strong>El mínimo privilegio de la Lambda se revisó leyendo la configuración.</strong> No se probó que una invocación sin permiso sea rechazada.</li>
+        <li><strong>Sin autenticación de usuarios ni pasarela de pago real.</strong> Están fuera del alcance.</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<section id="correr" aria-labelledby="h-run">
+  <h2 id="h-run">Correrlo en tu máquina</h2>
+  <p class="intro">Requisitos: Docker Desktop y el SDK de .NET 10 en Windows con PowerShell. Para los pasos de Terraform y Kubernetes: <code>terraform</code>, <code>kind</code>, <code>kubectl</code> y <code>aws</code>.</p>
+<pre tabindex="0" style="border-radius:14px"><span class="c"># 1. Infraestructura (levanta el emulador si hace falta)</span>
+powershell -ExecutionPolicy Bypass -File scripts\terraform.ps1 apply
+
+<span class="c"># 2. Servicios: elegir UNA de las tres formas (usan los mismos puertos)</span>
+powershell -ExecutionPolicy Bypass -File scripts\run-local.ps1     <span class="c"># procesos .NET</span>
+powershell -ExecutionPolicy Bypass -File scripts\run-docker.ps1    <span class="c"># contenedores</span>
+powershell -ExecutionPolicy Bypass -File scripts\run-k8s.ps1       <span class="c"># Kubernetes (kind)</span>
+
+<span class="c"># 3. Demos con salida verificable (exit 0 = todo pasó)</span>
+powershell -ExecutionPolicy Bypass -File scripts\demo-idempotency.ps1
+powershell -ExecutionPolicy Bypass -File scripts\demo-resilience.ps1
+powershell -ExecutionPolicy Bypass -File scripts\stress-test.ps1
+powershell -ExecutionPolicy Bypass -File scripts\lambda-logs.ps1   <span class="c"># notificaciones de la Lambda</span>
+
+<span class="c"># 4. Todo el gate de calidad, con los servicios detenidos</span>
+powershell -ExecutionPolicy Bypass -File scripts\ci.ps1</pre>
+  <p class="caption">El <a href="https://github.com/fedesauzzadev/ticketflow#readme">README</a> tiene el detalle de cada comando y el flujo manual con <code>curl</code>.</p>
+</section>
+
+</main>
+
+<footer>
+  <div class="wrap">TicketFlow · proyecto de estudio y portfolio · <a href="https://github.com/fedesauzzadev/ticketflow">github.com/fedesauzzadev/ticketflow</a> · Licencia MIT · Corrida de la demo: 22 de noviembre de 2026, emulador local de AWS.</div>
+</footer>
+
+<script>
+// Tema: sigue al sistema; el botón lo fija para esta pestaña.
+const root = document.documentElement;
+document.getElementById('theme').addEventListener('click', () => {
+  const dark = root.dataset.theme ? root.dataset.theme === 'dark' : matchMedia('(prefers-color-scheme: dark)').matches;
+  root.dataset.theme = dark ? 'light' : 'dark';
+});
+// Marca en la barra la sección visible.
+const links = new Map([...document.querySelectorAll('.top nav a')].map(a => [a.getAttribute('href').slice(1), a]));
+const spy = new IntersectionObserver(entries => {
+  for (const e of entries) if (e.isIntersecting) {
+    links.forEach(a => a.removeAttribute('aria-current'));
+    links.get(e.target.id)?.setAttribute('aria-current', 'true');
+  }
+}, { rootMargin: '-45% 0px -50% 0px' });
+links.forEach((_, id) => { const el = document.getElementById(id); if (el) spy.observe(el); });
+</script>
+</body>
+</html>
