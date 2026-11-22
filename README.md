@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/fedesauzzadev/ticketflow/actions/workflows/ci.yml/badge.svg)](https://github.com/fedesauzzadev/ticketflow/actions/workflows/ci.yml)
 
-> **Caso de estudio (portfolio):** [`docs/portfolio.html`](docs/portfolio.html) — arquitectura, demo guiada con una corrida real (Terraform → Kubernetes → compra → Lambda), decisiones, bugs encontrados, calidad y límites. Se abre en cualquier navegador; salida cruda en [`docs/portfolio-run.txt`](docs/portfolio-run.txt).
+> **Caso de estudio (portfolio):** **https://fedesauzzadev.github.io/ticketflow/** ([`docs/portfolio.html`](docs/portfolio.html)) — arquitectura, demo guiada con una corrida real (Terraform → Kubernetes → compra → Lambda), decisiones, bugs encontrados, calidad y límites. Se abre en cualquier navegador; salida cruda en [`docs/portfolio-run.txt`](docs/portfolio-run.txt).
 
 **Backend de venta de entradas para eventos de alta demanda** (flash-sale ticketing): 4 microservicios .NET 10 orquestados con saga y compensación, cache observable, idempotencia observable — **100% sobre servicios AWS corriendo en un emulador oficial en local** (`https://127.0.0.1:9297`). Cero nube real, cero costos, cero secrets en el repo.
 
