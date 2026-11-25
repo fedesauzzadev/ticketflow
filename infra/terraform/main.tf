@@ -46,6 +46,9 @@ provider "aws" {
     logs     = var.emulator_endpoint
     eks      = var.emulator_endpoint
     ec2      = var.emulator_endpoint
+    ssm      = var.emulator_endpoint
+
+    cognitoidp = var.emulator_endpoint
   }
 }
 

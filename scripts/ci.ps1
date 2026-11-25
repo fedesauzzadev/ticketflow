@@ -155,6 +155,9 @@ if ($Demos) {
             }
             $logsDir = Join-Path $root '.artifacts\logs' # mismo destino que run-local (los demos leen .artifacts\logs)
             New-Item -ItemType Directory -Force -Path $logsDir | Out-Null
+            # Órdenes exige user pool y parámetros al arrancar (D-0024).
+            dotnet run --project (Join-Path $root 'tools/TicketFlow.Provision/TicketFlow.Provision.csproj') --no-build -- --apply --manifest (Join-Path $root 'infra/aws-local.json') | Out-Host
+            if ($LASTEXITCODE -ne 0) { throw 'provision falló' }
             foreach ($s in $down) {
                 $env:SERVICE_PORT = "$($s.Port)" # cada hijo captura su puerto al iniciar
                 # PS 5.1: ArgumentList como array NO cita paths con espacios → string único citado.

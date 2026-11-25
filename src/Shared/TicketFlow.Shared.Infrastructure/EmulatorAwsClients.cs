@@ -1,7 +1,9 @@
 using System.Security.Cryptography.X509Certificates;
+using Amazon.CognitoIdentityProvider;
 using Amazon.DynamoDBv2;
 using Amazon.Runtime;
 using Amazon.S3;
+using Amazon.SimpleSystemsManagement;
 using Amazon.SQS;
 using Microsoft.Extensions.Logging;
 
@@ -20,19 +22,24 @@ public sealed class PinnedCaHttpClientFactory(X509Certificate2 ca, string downst
 {
     public override HttpClient CreateHttpClient(IClientConfig clientConfig)
     {
-        var handler = new HttpClientHandler();
-        handler.ServerCertificateCustomValidationCallback = (_, cert, chain, _) =>
-        {
-            if (cert is null || chain is null) return false;
-            var root = chain.ChainElements[^1].Certificate;
-            return string.Equals(root.Thumbprint, ca.Thumbprint, StringComparison.OrdinalIgnoreCase);
-        };
+        var handler = CreatePinnedHandler(ca);
         // QA F-01: con factory custom el SDK NO impone ClientConfig.Timeout — el HttpClient
         // debe llevarlo (10 s, NFR-3) o el request cuelga indefinidamente contra un peer congelado.
         var breaker = new CircuitBreakerHandler(downstream, loggerFactory?.CreateLogger("circuit-breaker"));
         breaker.InnerHandler = handler;
         return new HttpClient(breaker) { Timeout = clientConfig.Timeout ?? TimeSpan.FromSeconds(10) };
     }
+
+    /// <summary>Handler que solo acepta cadenas cuyo root es la CA del emulador.</summary>
+    public static HttpClientHandler CreatePinnedHandler(X509Certificate2 ca) => new()
+    {
+        ServerCertificateCustomValidationCallback = (_, cert, chain, _) =>
+        {
+            if (cert is null || chain is null) return false;
+            var root = chain.ChainElements[^1].Certificate;
+            return string.Equals(root.Thumbprint, ca.Thumbprint, StringComparison.OrdinalIgnoreCase);
+        },
+    };
 }
 
 public static class EmulatorAwsClients
@@ -91,6 +98,40 @@ public static class EmulatorAwsClients
                 ForcePathStyle = true,
                 Timeout = options.Timeout,
                 MaxErrorRetry = 0, // QA F-01: reintento del SDK multiplica el timeout (4x10 s=40 s medidos); el retry vive en la app.
+                HttpClientFactory = pin,
+            });
+    }
+
+    /// <summary>Cliente Ssm del emulador (D-0024). Misma regla que DynamoDB.</summary>
+    public static AmazonSimpleSystemsManagementClient CreateSsm(EmulatorAwsOptions options, ILoggerFactory? loggerFactory = null)
+    {
+        var pin = new PinnedCaHttpClientFactory(X509CertificateLoader.LoadCertificateFromFile(options.CaPath),
+            "ssm", loggerFactory);
+        return new AmazonSimpleSystemsManagementClient(
+            new BasicAWSCredentials(options.AccessKeyId, options.SecretAccessKey),
+            new AmazonSimpleSystemsManagementConfig
+            {
+                ServiceURL = options.Endpoint,
+                AuthenticationRegion = options.Region,
+                Timeout = options.Timeout,
+                MaxErrorRetry = 0,
+                HttpClientFactory = pin,
+            });
+    }
+
+    /// <summary>Cliente Cognito del emulador (D-0024). Misma regla que DynamoDB.</summary>
+    public static AmazonCognitoIdentityProviderClient CreateCognito(EmulatorAwsOptions options, ILoggerFactory? loggerFactory = null)
+    {
+        var pin = new PinnedCaHttpClientFactory(X509CertificateLoader.LoadCertificateFromFile(options.CaPath),
+            "cognito-idp", loggerFactory);
+        return new AmazonCognitoIdentityProviderClient(
+            new BasicAWSCredentials(options.AccessKeyId, options.SecretAccessKey),
+            new AmazonCognitoIdentityProviderConfig
+            {
+                ServiceURL = options.Endpoint,
+                AuthenticationRegion = options.Region,
+                Timeout = options.Timeout,
+                MaxErrorRetry = 0,
                 HttpClientFactory = pin,
             });
     }

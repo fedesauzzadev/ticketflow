@@ -36,6 +36,10 @@ Write-Host '==> Build de la solución (0 warnings exigido)...'
 dotnet build (Join-Path $root 'TicketFlow.sln') | Out-Null
 if ($LASTEXITCODE -ne 0) { throw 'Build falló.' }
 
+# Órdenes exige el user pool y sus parámetros al arrancar (D-0024): asegurar todo el manifiesto.
+dotnet run --project (Join-Path $root 'tools\TicketFlow.Provision\TicketFlow.Provision.csproj') --no-build -- --apply --manifest (Join-Path $root 'infra\aws-local.json')
+if ($LASTEXITCODE -ne 0) { throw 'Provision falló.' }
+
 # --- 3) Los 4 servicios --------------------------------------------------------
 # Logs a archivo (D-0011): PS 5.1 no permite redirigir stdout y stderr al mismo
 # archivo → .log (JSON de la saga) + .err.log (diagnóstico). .artifacts/ gitignored.

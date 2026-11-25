@@ -50,5 +50,7 @@
     { "name": "ticketflow-ticketing-commands-dlq.fifo","fifo": true, "contentBasedDeduplication": true },
     { "name": "ticketflow-orders-events-dlq.fifo",     "fifo": true, "contentBasedDeduplication": true }
   ],
-  "buckets": [ { "name": "ticketflow-tickets" } ]
+  "buckets": [ { "name": "ticketflow-tickets" } ],
+  "userPool": { "name": "ticketflow-users", "clientName": "ticketflow-cli" },
+  "parameters": [ { "name": "/ticketflow/orders/hold-ttl-seconds", "value": "90" } ]
 }
