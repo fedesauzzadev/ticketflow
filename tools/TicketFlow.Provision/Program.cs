@@ -1,8 +1,10 @@
+using Amazon.CognitoIdentityProvider;
 using Amazon.DynamoDBv2;
 using Amazon.DynamoDBv2.Model;
 using Amazon.Runtime;
 using Amazon.S3;
 using Amazon.S3.Model;
+using Amazon.SimpleSystemsManagement;
 using Amazon.SQS;
 using Amazon.SQS.Model;
 using TicketFlow.Shared.Infrastructure;
@@ -24,6 +26,7 @@ public static class Program
     public static async Task<int> Run(IReadOnlyList<string> args, TextWriter stdout, CancellationToken ct)
     {
         var verify = false;
+        string? tokenUser = null;
         var manifestPath = "infra/aws-local.json";
         for (var i = 0; i < args.Count; i++)
         {
@@ -31,6 +34,9 @@ public static class Program
             {
                 case "--apply": verify = false; break;
                 case "--verify": verify = true; break;
+                case "--token":
+                    if (i + 1 >= args.Count) { Usage(stdout, "--token requiere un nombre de usuario."); return 2; }
+                    tokenUser = args[++i]; break;
                 case "--manifest":
                     if (i + 1 >= args.Count) { Usage(stdout, "--manifest requiere la ruta del manifiesto."); return 2; }
                     manifestPath = args[++i]; break;
@@ -60,9 +66,24 @@ public static class Program
             using var ddb = EmulatorAwsClients.CreateDynamoDb(options);
             using var sqs = EmulatorAwsClients.CreateSqs(options);
             using var s3 = EmulatorAwsClients.CreateS3(options);
-            return verify
-                ? await VerifyAsync(manifest, ddb, sqs, s3, stdout, ct)
-                : await ApplyAsync(manifest, ddb, sqs, s3, stdout, ct);
+            using var ssm = EmulatorAwsClients.CreateSsm(options);
+            using var cognito = EmulatorAwsClients.CreateCognito(options);
+            if (tokenUser is not null)
+            {
+                // Solo el token en stdout: los scripts lo capturan tal cual.
+                stdout.WriteLine((await CognitoSetup.SignInDemoUserAsync(cognito, ssm, tokenUser, ct)).AccessToken);
+                return 0;
+            }
+            if (!verify)
+            {
+                var applied = await ApplyAsync(manifest, ddb, sqs, s3, stdout, ct);
+                await ApplyAuthAndParametersAsync(manifest, cognito, ssm, stdout, ct);
+                return applied;
+            }
+            var missing = await VerifyAuthAndParametersAsync(manifest, cognito, ssm, stdout, ct);
+            var exit = await VerifyAsync(manifest, ddb, sqs, s3, stdout, ct);
+            if (missing > 0) stdout.WriteLine($"verificación FALLÓ: {missing} diferencia(s) en Cognito/Parameter Store.");
+            return missing > 0 ? 1 : exit;
         }
         catch (Exception ex)
         {
@@ -74,11 +95,57 @@ public static class Program
     private static void Usage(TextWriter o, string? error)
     {
         if (error is not null) o.WriteLine($"ERROR: {error}");
-        o.WriteLine("Uso: TicketFlow.Provision [--apply | --verify] [--manifest <ruta>]");
+        o.WriteLine("Uso: TicketFlow.Provision [--apply | --verify | --token <usuario>] [--manifest <ruta>]");
         o.WriteLine("  --apply   (default) asegura todos los recursos del manifiesto (idempotente).");
         o.WriteLine("  --verify  lista los recursos reales y los compara con el manifiesto: falta o");
         o.WriteLine("            difiere => exit 1 con el diff; extras => warning (exit 0).");
+        o.WriteLine("  --token   imprime un access token de Cognito para un usuario de demo (solo emulador).");
         o.WriteLine("  Requiere env AWS_EMULATOR_* (scripts/provision.ps1 la inyecta).");
+    }
+
+    // --- Cognito + Parameter Store (D-0024) ------------------------------------------
+
+    private static async Task ApplyAuthAndParametersAsync(Manifest manifest, IAmazonCognitoIdentityProvider cognito,
+        IAmazonSimpleSystemsManagement ssm, TextWriter o, CancellationToken ct)
+    {
+        if (manifest.UserPool is { } pool)
+        {
+            var (poolId, _) = await CognitoSetup.EnsureAsync(cognito, ssm, ct);
+            o.WriteLine($"cognito {pool.Name} OK ({poolId})");
+        }
+        foreach (var p in manifest.Parameters ?? [])
+        {
+            await CognitoSetup.PutAsync(ssm, p.Name, p.Value, overwrite: false, ct); // respeta cambios hechos a mano
+            o.WriteLine($"param   {p.Name} OK");
+        }
+    }
+
+    private static async Task<int> VerifyAuthAndParametersAsync(Manifest manifest,
+        IAmazonCognitoIdentityProvider cognito, IAmazonSimpleSystemsManagement ssm, TextWriter o, CancellationToken ct)
+    {
+        if (manifest.UserPool is null && manifest.Parameters is null) return 0;
+        var problems = 0;
+        var real = await ParameterStore.LoadAsync(ssm, ct);
+        void Check(bool ok, string what)
+        {
+            o.WriteLine($"    {(ok ? "OK   " : "FALTA")} {what}");
+            if (!ok) problems++;
+        }
+        o.WriteLine("==> Cognito y Parameter Store:");
+        if (manifest.UserPool is { } pool)
+        {
+            var poolId = await CognitoSetup.FindPoolIdAsync(cognito, ct);
+            var clientId = poolId is null ? null : await CognitoSetup.FindClientIdAsync(cognito, poolId, ct);
+            Check(poolId is not null, $"user pool '{pool.Name}'");
+            Check(clientId is not null, $"app client '{pool.ClientName}'");
+            Check(poolId is not null && real.GetValueOrDefault(ParameterNames.UserPoolId) == poolId,
+                $"parámetro '{ParameterNames.UserPoolId}' apunta al pool");
+            Check(clientId is not null && real.GetValueOrDefault(ParameterNames.ClientId) == clientId,
+                $"parámetro '{ParameterNames.ClientId}' apunta al client");
+        }
+        foreach (var p in manifest.Parameters ?? [])
+            Check(real.ContainsKey(p.Name), $"parámetro '{p.Name}'");
+        return problems;
     }
 
     // --- --apply ---------------------------------------------------------------------

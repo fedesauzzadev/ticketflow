@@ -20,6 +20,9 @@ if (-not $env:SEED_EVENTS) {
 }
 $ErrorActionPreference = 'Continue' # PS 5.1: docker/kind escriben progreso por stderr
 function Assert-Ok($what) { if ($LASTEXITCODE -ne 0) { Write-Host "ERROR: $what"; exit 1 } }
+# Órdenes exige el user pool y sus parámetros al arrancar (D-0024); compila además lo que usa auth.ps1.
+dotnet run --project (Join-Path $root 'tools\TicketFlow.Provision\TicketFlow.Provision.csproj') -- --apply --manifest (Join-Path $root 'infra\aws-local.json')
+if ($LASTEXITCODE -ne 0) { Write-Host 'ERROR: provision'; exit 1 }
 
 Write-Host '==> Imagenes (mismo Dockerfile que run-docker)...'
 docker compose -f (Join-Path $root 'docker-compose.yml') --profile services build catalog orders payments ticketing

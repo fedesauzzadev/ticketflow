@@ -86,6 +86,12 @@ namespace TicketFlowStress
             return c;
         }
 
+        public static void SetToken(string token)
+        {
+            Http.DefaultRequestHeaders.Authorization =
+                new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
+        }
+
         public static int GetAvailability(string catalogUrl, string eventId)
         {
             HttpResponseMessage r = Http.GetAsync(catalogUrl + "/events/" + eventId + "/availability").GetAwaiter().GetResult();
@@ -187,6 +193,10 @@ namespace TicketFlowStress
 }
 '@
 Add-Type -TypeDefinition $helper -ReferencedAssemblies @('System', 'System.Core', 'System.Net.Http')
+
+# Comprar exige un access token de Cognito (D-0024). Dura 1 h, de sobra para la corrida.
+. (Join-Path $PSScriptRoot 'auth.ps1')
+[TicketFlowStress.StressClient]::SetToken((Get-DemoToken))
 
 $fails = New-Object System.Collections.Generic.List[string]
 function Check([bool]$Ok, [string]$What) {

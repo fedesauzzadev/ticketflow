@@ -1,6 +1,7 @@
 using TicketFlow.Catalog.Core.Infrastructure;
 using TicketFlow.Orders.Core.Infrastructure;
 using TicketFlow.Payments.Core.Infrastructure;
+using TicketFlow.Shared.Infrastructure;
 using TicketFlow.Shared.Infrastructure.Saga;
 using TicketFlow.Ticketing.Core.Infrastructure;
 
@@ -244,5 +245,31 @@ public sealed class ProvisionToolTests
         {
             File.Delete(path);
         }
+    }
+}
+
+/// <summary>Cognito + Parameter Store en el manifiesto (D-0024): mismo guard que tablas y colas.</summary>
+public sealed class ManifestAuthGuardTests
+{
+    [Fact]
+    public void User_pool_and_parameters_match_code_constants()
+    {
+        var manifest = Manifest.Load(Repo.ManifestPath);
+        Assert.Equal(CognitoSetup.UserPoolName, manifest.UserPool!.Name);
+        Assert.Equal(CognitoSetup.ClientName, manifest.UserPool.ClientName);
+        Assert.Equal(ParameterNames.HoldTtlSeconds, Assert.Single(manifest.Parameters!).Name);
+    }
+
+    [Theory]
+    [InlineData("""{"name":"otro-pool","clientName":"ticketflow-cli"}""", "[]")]
+    [InlineData("null", """[{"name":"/otra-raiz/x","value":"1"}]""")]
+    [InlineData("null", """[{"name":"/ticketflow/x","value":" "}]""")]
+    [InlineData("null", "[null]")]
+    public void Parse_rejects_unusable_auth_or_parameters(string userPool, string parameters)
+    {
+        var node = System.Text.Json.Nodes.JsonNode.Parse(File.ReadAllText(Repo.ManifestPath))!;
+        node["userPool"] = System.Text.Json.Nodes.JsonNode.Parse(userPool);
+        node["parameters"] = System.Text.Json.Nodes.JsonNode.Parse(parameters);
+        Assert.Throws<InvalidManifestException>(() => Manifest.Parse(node.ToJsonString()));
     }
 }

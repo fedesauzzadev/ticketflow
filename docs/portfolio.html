@@ -148,21 +148,21 @@ footer{border-top:1px solid var(--line);padding:30px 0 60px;color:var(--mut);fon
 <div class="hero" id="resumen">
   <div class="eyebrow">Caso de estudio · backend distribuido sobre AWS</div>
   <h1>Vender entradas sin vender dos veces el mismo asiento.</h1>
-  <p class="lead">TicketFlow es un backend de venta de entradas para eventos de alta demanda: <strong>4 microservicios .NET 10</strong> coordinados por una saga, sobre <strong>DynamoDB, SQS FIFO, S3, Lambda y EKS</strong>, con la infraestructura en <strong>Terraform</strong> y los servicios en <strong>Docker y Kubernetes</strong>. Corre completo en una laptop contra el emulador local de AWS, sin cuenta ni costo.</p>
+  <p class="lead">TicketFlow es un backend de venta de entradas para eventos de alta demanda: <strong>4 microservicios .NET 10</strong> coordinados por una saga, sobre <strong>DynamoDB, SQS FIFO, S3, Lambda, Cognito, Parameter Store y EKS</strong>, con la infraestructura en <strong>Terraform</strong> y los servicios en <strong>Docker y Kubernetes</strong>. Corre completo en una laptop contra el emulador local de AWS, sin cuenta ni costo.</p>
   <div class="cta">
     <a class="btn primary" href="#demo">Ver la demo paso a paso</a>
     <a class="btn" href="https://github.com/fedesauzzadev/ticketflow">Código en GitHub</a>
     <a class="btn" href="https://github.com/fedesauzzadev/ticketflow/actions">CI</a>
   </div>
   <div class="stats" role="list">
-    <div class="stat" role="listitem"><b>203</b><span>tests automáticos, todos en verde</span></div>
-    <div class="stat" role="listitem"><b>32</b><span>recursos AWS en Terraform</span></div>
+    <div class="stat" role="listitem"><b>213</b><span>tests automáticos, todos en verde</span></div>
+    <div class="stat" role="listitem"><b>37</b><span>recursos AWS en Terraform</span></div>
     <div class="stat" role="listitem"><b>~760 ms</b><span>saga completa, 4 servicios</span></div>
     <div class="stat" role="listitem"><b>0</b><span>asientos sobrevendidos bajo estrés</span></div>
     <div class="stat" role="listitem"><b>3</b><span>formas de correrlo: procesos, Docker, Kubernetes</span></div>
   </div>
   <ul class="chips" aria-label="Tecnologías">
-    <li>.NET 10</li><li>AWS SDK v4</li><li>DynamoDB</li><li>SQS FIFO + DLQ</li><li>S3</li><li>Lambda (Python 3.12)</li><li>IAM</li><li>CloudWatch Logs</li><li>EKS</li><li>Terraform</li><li>Docker</li><li>Kubernetes (kind)</li><li>GitHub Actions</li><li>xUnit</li>
+    <li>.NET 10</li><li>AWS SDK v4</li><li>DynamoDB</li><li>SQS FIFO + DLQ</li><li>S3</li><li>Lambda (Python 3.12)</li><li>IAM</li><li>Cognito</li><li>Parameter Store</li><li>CloudWatch Logs</li><li>EKS</li><li>Terraform</li><li>Docker</li><li>Kubernetes (kind)</li><li>GitHub Actions</li><li>xUnit</li>
   </ul>
 </div>
 
@@ -172,8 +172,9 @@ footer{border-top:1px solid var(--line);padding:30px 0 60px;color:var(--mut);fon
   <div class="grid">
     <div class="card"><span class="tag">Sistemas distribuidos</span><h3>Saga con compensación</h3><p>Reserva, pago y emisión coordinados por un orquestador. Si el pago falla, el asiento se libera solo y la compra termina en un estado explicable.</p><span class="where">Dónde verlo: demo, pasos 3 y 6 · <code>SagaProcessManager.cs</code></span></div>
     <div class="card"><span class="tag">Consistencia</span><h3>Cero sobreventa e idempotencia</h3><p>Decremento atómico condicional en DynamoDB. La misma <code>Idempotency-Key</code> devuelve la misma compra, sin efectos nuevos.</p><span class="where">Dónde verlo: <code>scripts/stress-test.ps1</code> · <code>scripts/demo-idempotency.ps1</code></span></div>
-    <div class="card"><span class="tag">Infraestructura como código</span><h3>Terraform con una sola fuente de verdad</h3><p>32 recursos. Tablas, colas y bucket salen de un manifiesto JSON que también consume una herramienta .NET y que un test protege contra la deriva.</p><span class="where">Dónde verlo: demo, paso 1 · <code>infra/terraform/</code></span></div>
+    <div class="card"><span class="tag">Infraestructura como código</span><h3>Terraform con una sola fuente de verdad</h3><p>37 recursos. Tablas, colas, bucket, user pool y parámetros salen de un manifiesto JSON que también consume una herramienta .NET y que un test protege contra la deriva.</p><span class="where">Dónde verlo: demo, paso 1 · <code>infra/terraform/</code></span></div>
     <div class="card"><span class="tag">Serverless</span><h3>Lambda disparada por eventos</h3><p>Guardar el QR en S3 dispara una función que notifica. Ningún servicio la invoca. Rol IAM de mínimo privilegio.</p><span class="where">Dónde verlo: demo, paso 5 · <code>infra/terraform/lambda.tf</code></span></div>
+    <div class="card"><span class="tag">Identidad</span><h3>Login con Cognito y configuración centralizada</h3><p>Órdenes valida el access token, cada usuario ve solo sus compras y la configuración se lee de Parameter Store.</p><span class="where">Dónde verlo: <code>CognitoJwtAuth.cs</code> · <code>infra/terraform/auth.tf</code></span></div>
     <div class="card"><span class="tag">Contenedores</span><h3>Docker y Kubernetes</h3><p>Un Dockerfile multi-stage para los 4 servicios. Deployments con probes y límites, Services con DNS, secretos fuera del repositorio.</p><span class="where">Dónde verlo: demo, pasos 2 y 7 · <code>infra/k8s/</code></span></div>
     <div class="card"><span class="tag">Resiliencia</span><h3>Fallos inyectables y observables</h3><p>Reintentos con backoff, colas de mensajes muertos, circuit breaker y reservas con vencimiento. Todo se puede provocar a mano y mirar.</p><span class="where">Dónde verlo: <code>scripts/demo-resilience.ps1</code> · <code>scripts/demo-ttl.ps1</code></span></div>
     <div class="card"><span class="tag">Observabilidad</span><h3>Traza distribuida por compra</h3><p>Un mismo identificador recorre los 4 servicios. La historia completa de una compra se reconstruye filtrando los logs.</p><span class="where">Dónde verlo: demo, paso 4</span></div>
@@ -256,7 +257,7 @@ footer{border-top:1px solid var(--line);padding:30px 0 60px;color:var(--mut);fon
 
       <rect class="d-box" x="652" y="206" width="280" height="146" rx="10"/>
       <text class="d-t" x="792" y="240" text-anchor="middle">Terraform</text>
-      <text class="d-s" x="792" y="264" text-anchor="middle">declara los 32 recursos de esta zona</text>
+      <text class="d-s" x="792" y="264" text-anchor="middle">declara los 37 recursos del emulador</text>
       <text class="d-s" x="792" y="282" text-anchor="middle">tablas, colas y bucket: for_each sobre</text>
       <text class="d-s" x="792" y="300" text-anchor="middle">un manifiesto JSON compartido</text>
       <text class="d-s" x="792" y="318" text-anchor="middle">con la herramienta de verificación .NET</text>
@@ -267,7 +268,7 @@ footer{border-top:1px solid var(--line);padding:30px 0 60px;color:var(--mut);fon
 
 <section id="demo" aria-labelledby="h-demo">
   <h2 id="h-demo">Demo guiada: una corrida real</h2>
-  <p class="intro">Todo lo que sigue es salida real, sin editar más que para acortar líneas largas, de una corrida del 22 de noviembre de 2026 partiendo de un emulador recién reiniciado (vacío). El registro completo está en <a href="portfolio-run.txt"><code>docs/portfolio-run.txt</code></a>.</p>
+  <p class="intro">Todo lo que sigue es salida real, sin editar más que para acortar líneas largas, de una corrida del 22 de noviembre de 2026 partiendo de un emulador recién reiniciado (vacío). Es anterior a Cognito y Parameter Store: hoy las compras llevan además un token y Terraform crea 37 recursos. El registro completo está en <a href="portfolio-run.txt"><code>docs/portfolio-run.txt</code></a>.</p>
 
   <ol class="steps">
     <li class="step">
@@ -515,12 +516,12 @@ ticketing-75f4dc88c5-<span class="a">k2gfl</span>   1/1   Running   0   6s    <s
       <table>
         <thead><tr><th scope="col">Suite</th><th scope="col">Tests</th><th scope="col">Líneas</th><th scope="col">Ramas</th></tr></thead>
         <tbody>
-          <tr><td>Catálogo + infraestructura compartida</td><td class="num">81</td><td class="num">81,0 %</td><td class="num">74,3 %</td></tr>
-          <tr><td>Órdenes (saga, idempotencia, reservas)</td><td class="num">92</td><td class="num">89,3 %</td><td class="num">78,6 %</td></tr>
-          <tr><td>Pagos</td><td class="num">8</td><td class="num">94,8 %</td><td class="num">84,0 %</td></tr>
+          <tr><td>Catálogo + infraestructura compartida</td><td class="num">81</td><td class="num">84,6 %</td><td class="num">75,7 %</td></tr>
+          <tr><td>Órdenes (saga, idempotencia, reservas)</td><td class="num">97</td><td class="num">90,0 %</td><td class="num">79,2 %</td></tr>
+          <tr><td>Pagos</td><td class="num">8</td><td class="num">95,6 %</td><td class="num">86,0 %</td></tr>
           <tr><td>Ticketing</td><td class="num">5</td><td class="num">88,7 %</td><td class="num">76,2 %</td></tr>
-          <tr><td>Aprovisionamiento</td><td class="num">17</td><td class="num">86,5 %</td><td class="num">76,7 %</td></tr>
-          <tr><td><strong>Total</strong></td><td class="num"><strong>203</strong></td><td></td><td></td></tr>
+          <tr><td>Aprovisionamiento</td><td class="num">22</td><td class="num">87,6 %</td><td class="num">76,1 %</td></tr>
+          <tr><td><strong>Total</strong></td><td class="num"><strong>213</strong></td><td></td><td></td></tr>
         </tbody>
       </table>
     </div>
@@ -556,7 +557,7 @@ ticketing-75f4dc88c5-<span class="a">k2gfl</span>   1/1   Running   0   6s    <s
         <li><strong>Una réplica por servicio.</strong> Escalar horizontalmente los consumidores de la saga no está verificado.</li>
         <li><strong>El CI no ejecuta Terraform, Docker ni Kubernetes.</strong> Esas partes están verificadas en local, con evidencia guardada.</li>
         <li><strong>El mínimo privilegio de la Lambda se revisó leyendo la configuración.</strong> No se probó que una invocación sin permiso sea rechazada.</li>
-        <li><strong>Sin autenticación de usuarios ni pasarela de pago real.</strong> Están fuera del alcance.</li>
+        <li><strong>Autenticación solo en Órdenes.</strong> Pagos, Ticketing y los endpoints de administración siguen abiertos. No hay pasarela de pago real.</li>
       </ul>
     </div>
   </div>

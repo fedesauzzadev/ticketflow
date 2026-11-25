@@ -45,7 +45,7 @@
 </head>
 <body>
 <h1>🔧 Cómo está integrado AWS (todo local, en el emulador)</h1>
-<p class="sub">TicketFlow v0.3.0 · las mismas APIs de DynamoDB, SQS y S3 contra un contenedor Docker · cero nube real, cero costo, cero secrets en el repo</p>
+<p class="sub">TicketFlow v0.3.0 · las mismas APIs de DynamoDB, SQS, S3, Cognito y Parameter Store contra un contenedor Docker · cero nube real, cero costo, cero secrets en el repo</p>
 
 <h2>1 · El mapa completo</h2>
 <div class="map">
@@ -54,7 +54,7 @@
     <div class="sec">
       <div class="mini" style="border-color:var(--acc)"><b>🧑 Cliente / demos</b><span>PowerShell · HTTP</span></div>
     </div>
-    <div class="arrowline">↓&nbsp;&nbsp;HTTP + JSON (Idempotency-Key, hold, pago)</div>
+    <div class="arrowline">↓&nbsp;&nbsp;login en Cognito → HTTP + JSON (Bearer token, Idempotency-Key, hold, pago)</div>
   </div>
 
   <div class="row svc">
@@ -64,6 +64,8 @@
         <li>🗃️ <span class="res mono">purchases</span> — estado de cada compra + holds (el sweeper barre acá)</li>
         <li>🗃️ <span class="res mono">orders_idempotency</span> — claim condicional de la Idempotency-Key</li>
         <li>🗃️ <span class="res mono">orders_outbox</span> — outbox: escribe el mensaje y la tabla en el mismo paso</li>
+        <li>🔐 exige access token de <span class="res mono">Cognito</span>; cada compra tiene dueño</li>
+        <li>⚙️ lee <span class="res mono">Parameter Store /ticketflow/*</span> al arrancar</li>
         <li>📮 publica a las 3 colas de comandos · consume <span class="res mono">orders-events</span></li>
       </ul>
     </div>
@@ -101,6 +103,8 @@
       <div class="mini"><b>🗃️ DynamoDB</b><span>6 tablas (estado)</span></div>
       <div class="mini"><b>📮 SQS FIFO</b><span>8 colas (4 + 4 DLQ)</span></div>
       <div class="mini"><b>🪣 S3</b><span>1 bucket (QRs)</span></div>
+      <div class="mini"><b>🔐 Cognito</b><span>usuarios y tokens</span></div>
+      <div class="mini"><b>⚙️ Parameter Store</b><span>3 parámetros</span></div>
     </div>
     <p style="font-size:12.5px;color:var(--mut);margin-top:8px;text-align:center">
       CA autofirmada regenerada en cada corrida (<span class="mono">docker cp → .secrets/ca.pem</span>, gitignored) ·
@@ -122,7 +126,7 @@
 
 <h2>3 · Una compra, mensaje por mensaje</h2>
 <div class="flow">
-  <div class="card fstep"><div class="fn">1</div><div><b>POST /purchases</b> (Órdenes) — valida, claim de la Idempotency-Key en <span class="mono">orders_idempotency</span>, crea la compra en <span class="mono">purchases</span> y el comando <b>reserve-seats</b> en el <span class="mono">orders_outbox</span>.</div></div>
+  <div class="card fstep"><div class="fn">1</div><div><b>POST /purchases</b> (Órdenes) — verifica el token de Cognito (sin token: 401), valida, claim de la Idempotency-Key en <span class="mono">orders_idempotency</span>, crea la compra en <span class="mono">purchases</span> y el comando <b>reserve-seats</b> en el <span class="mono">orders_outbox</span>.</div></div>
   <div class="card fstep"><div class="fn">2</div><div><b>Outbox → SQS</b> — el publicador lee el outbox y manda el mensaje a <span class="mono">ticketflow-catalog-commands.fifo</span> (FIFO: orden garantizada + dedup).</div></div>
   <div class="card fstep"><div class="fn">3</div><div><b>Catálogo reserva</b> — decremento atómico del asiento en <span class="mono">catalog_events</span> (sin oversell aunque lleguen 20 iguales), invalida su cache, responde el evento por <span class="mono">orders-events.fifo</span>.</div></div>
   <div class="card fstep"><div class="fn">4</div><div><b>El process manager avanza</b> (Órdenes) — con la reserva OK manda <b>authorize-payment</b> a Pagos. Rechazado → compensación: <b>release-seats</b> devuelve el asiento y la compra queda FAILED con motivo.</div></div>
@@ -145,6 +149,8 @@
     <tr><td class="mono">ticketflow-orders-events.fifo</td><td>SQS FIFO</td><td>respuestas hacia el orquestador</td></tr>
     <tr><td class="mono">…-commands-dlq.fifo ×3 + orders-events-dlq.fifo</td><td>SQS FIFO</td><td>mensajes muertos inspeccionables (GET /admin/dlq)</td></tr>
     <tr><td class="mono">ticketflow-tickets</td><td>S3</td><td>Ticketing — QR de cada entrada</td></tr>
+    <tr><td class="mono">ticketflow-users + ticketflow-cli</td><td>Cognito</td><td>login; Órdenes valida los tokens</td></tr>
+    <tr><td class="mono">/ticketflow/auth/*, /ticketflow/orders/hold-ttl-seconds</td><td>Parameter Store</td><td>Órdenes — configuración al arrancar</td></tr>
   </table>
   <p class="why" style="margin-top:8px">Todo esto vive declarado en <span class="mono">infra/aws-local.json</span> y se crea con <span class="mono">scripts\provision.ps1</span> (idempotente, <span class="mono">-Verify</span> compara 1:1 contra el emulador).</p>
 </div>
@@ -152,11 +158,11 @@
 <h2>5 · Levantar todo (3 comandos)</h2>
 <div class="card">
   <pre>docker compose up -d                          <span style="color:#8b93a7"># 1) el "AWS" local (emulador :9297)</span>
-powershell -File scripts\provision.ps1       <span style="color:#8b93a7"># 2) (opcional) crea los 15 recursos desde el manifiesto</span>
+powershell -File scripts\provision.ps1       <span style="color:#8b93a7"># 2) (opcional: run-local ya lo hace) crea los recursos del manifiesto</span>
 powershell -File scripts\run-local.ps1       <span style="color:#8b93a7"># 3) build + 4 servicios + CA/creds de esta corrida</span></pre>
   <p class="why">Requisito único: Docker Desktop. Sin cuenta AWS, sin tarjetas, sin internet.</p>
 </div>
 
-<p class="sub" style="margin-top:26px">TicketFlow v0.3.0 · integración verificada contra el emulador real en cada corrida (probe F2, IaC verify 15/15, suite 186/186) · docs/aws-architecture.html</p>
+<p class="sub" style="margin-top:26px">TicketFlow v0.3.0 · integración verificada contra el emulador real en cada corrida (probe F2, verificación IaC contra el manifiesto, suite 213/213) · docs/aws-architecture.html</p>
 </body>
 </html>

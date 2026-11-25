@@ -35,7 +35,7 @@ public sealed class PaymentEndpointTests
     {
         var repo = factory.Services.GetRequiredService<DynamoDbPurchaseRepository>();
         var purchase = Purchase.Create(PurchaseIds.New(), "evt-api-test", 1, "4111111111111111",
-            "pay-test-" + Guid.NewGuid().ToString("N"), DateTimeOffset.UtcNow, hold: true);
+            "pay-test-" + Guid.NewGuid().ToString("N"), DateTimeOffset.UtcNow, hold: true, owner: AuthTestSupport.Sub());
         await repo.CreateAsync(purchase, ct);
         Assert.True(await repo.TryHoldReserveAsync(purchase.PurchaseId, expiresAt, 120.50m, ct));
         return purchase.PurchaseId;
@@ -46,7 +46,7 @@ public sealed class PaymentEndpointTests
     {
         EmulatorTestSupport.SkipIfNotConfigured();
         using var factory = NewFactory();
-        var client = factory.CreateClient();
+        var client = factory.CreateAuthClient();
         var key = "pay-test-" + Guid.NewGuid().ToString("N");
         client.DefaultRequestHeaders.Add("Idempotency-Key", key);
 
@@ -66,7 +66,7 @@ public sealed class PaymentEndpointTests
     {
         EmulatorTestSupport.SkipIfNotConfigured();
         using var factory = NewFactory();
-        var client = factory.CreateClient();
+        var client = factory.CreateAuthClient();
         client.DefaultRequestHeaders.Add("Idempotency-Key", "pay-test-" + Guid.NewGuid().ToString("N"));
 
         using var response = await client.PostAsync("/purchases", HoldBody(holdValue: "\"yes\""));
@@ -84,7 +84,7 @@ public sealed class PaymentEndpointTests
         EmulatorTestSupport.SkipIfNotConfigured();
         var ct = CancellationToken.None;
         using var factory = NewFactory();
-        var client = factory.CreateClient();
+        var client = factory.CreateAuthClient();
         var expiresAt = DateTimeOffset.UtcNow.AddSeconds(90).ToUnixTimeSeconds();
 
         var holdId = await CreateHoldAtSeatsReservedAsync(factory, expiresAt, ct);
@@ -96,7 +96,7 @@ public sealed class PaymentEndpointTests
         // Sin hold (camino V1): nunca aparece expires_at.
         var repo = factory.Services.GetRequiredService<DynamoDbPurchaseRepository>();
         var plain = Purchase.Create(PurchaseIds.New(), "evt-api-test", 1, "4111111111111111",
-            "pay-test-" + Guid.NewGuid().ToString("N"), DateTimeOffset.UtcNow);
+            "pay-test-" + Guid.NewGuid().ToString("N"), DateTimeOffset.UtcNow, owner: AuthTestSupport.Sub());
         await repo.CreateAsync(plain, ct);
         var plainBody = await client.GetFromJsonAsync<JsonElement>($"/purchases/{plain.PurchaseId}");
         Assert.False(plainBody.TryGetProperty("expires_at", out _));
@@ -107,7 +107,7 @@ public sealed class PaymentEndpointTests
     {
         EmulatorTestSupport.SkipIfNotConfigured();
         using var factory = NewFactory();
-        var client = factory.CreateClient();
+        var client = factory.CreateAuthClient();
 
         using var badId = await client.PostAsync("/purchases/no-es-un-id/payment", null);
         Assert.Equal(HttpStatusCode.BadRequest, badId.StatusCode);
@@ -126,7 +126,7 @@ public sealed class PaymentEndpointTests
         EmulatorTestSupport.SkipIfNotConfigured();
         var ct = CancellationToken.None;
         using var factory = NewFactory();
-        var client = factory.CreateClient();
+        var client = factory.CreateAuthClient();
         var expiresAt = DateTimeOffset.UtcNow.AddSeconds(60).ToUnixTimeSeconds();
         var id = await CreateHoldAtSeatsReservedAsync(factory, expiresAt, ct);
 
@@ -152,7 +152,7 @@ public sealed class PaymentEndpointTests
         EmulatorTestSupport.SkipIfNotConfigured();
         var ct = CancellationToken.None;
         using var factory = NewFactory();
-        var client = factory.CreateClient();
+        var client = factory.CreateAuthClient();
         var id = await CreateHoldAtSeatsReservedAsync(factory,
             DateTimeOffset.UtcNow.AddSeconds(-1).ToUnixTimeSeconds(), ct);
         var repo = factory.Services.GetRequiredService<DynamoDbPurchaseRepository>();
@@ -173,11 +173,11 @@ public sealed class PaymentEndpointTests
         EmulatorTestSupport.SkipIfNotConfigured();
         var ct = CancellationToken.None;
         using var factory = NewFactory();
-        var client = factory.CreateClient();
+        var client = factory.CreateAuthClient();
         var repo = factory.Services.GetRequiredService<DynamoDbPurchaseRepository>();
 
         var pending = Purchase.Create(PurchaseIds.New(), "evt-api-test", 1, "4111111111111111",
-            "pay-test-" + Guid.NewGuid().ToString("N"), DateTimeOffset.UtcNow);
+            "pay-test-" + Guid.NewGuid().ToString("N"), DateTimeOffset.UtcNow, owner: AuthTestSupport.Sub());
         await repo.CreateAsync(pending, ct);
         using var tooEarly = await client.PostAsync($"/purchases/{pending.PurchaseId}/payment", null);
         Assert.Equal(HttpStatusCode.Conflict, tooEarly.StatusCode);
@@ -185,7 +185,7 @@ public sealed class PaymentEndpointTests
             JsonDocument.Parse(await tooEarly.Content.ReadAsStringAsync()).RootElement.GetProperty("type").GetString());
 
         var nonHold = Purchase.Create(PurchaseIds.New(), "evt-api-test", 1, "4111111111111111",
-            "pay-test-" + Guid.NewGuid().ToString("N"), DateTimeOffset.UtcNow);
+            "pay-test-" + Guid.NewGuid().ToString("N"), DateTimeOffset.UtcNow, owner: AuthTestSupport.Sub());
         await repo.CreateAsync(nonHold, ct);
         await repo.TryTransitionAsync(nonHold.PurchaseId,
             PurchaseStatus.PENDING, PurchaseStatus.SEATS_RESERVED, ct: ct);
@@ -199,7 +199,7 @@ public sealed class PaymentEndpointTests
         EmulatorTestSupport.SkipIfNotConfigured();
         var ct = CancellationToken.None;
         using var factory = NewFactory();
-        var client = factory.CreateClient();
+        var client = factory.CreateAuthClient();
         var key = "pay-test-" + Guid.NewGuid().ToString("N");
 
         // AC6 primera mitad: misma key + mismo body ⇒ la MISMA compra en su terminal EXPIRED.

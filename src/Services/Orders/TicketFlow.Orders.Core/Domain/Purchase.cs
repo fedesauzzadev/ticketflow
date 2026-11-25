@@ -38,6 +38,7 @@ public static partial class PurchaseIds
 /// Campos del hold (D-0017/D-0018): Hold marca la compra cuyo pago NO se auto-emite; ExpiresAt
 /// (epoch segundos) la vencimiento; Amount el monto persistido en la reserva para el pago
 /// diferido; PaymentInitiatedAt (epoch segundos) el claim del POST /payment.
+/// Owner (D-0024): "sub" del usuario de Cognito dueño de la compra.
 /// </summary>
 public sealed record Purchase(
     string PurchaseId,
@@ -53,10 +54,11 @@ public sealed record Purchase(
     bool Hold = false,
     long? ExpiresAt = null,
     long? PaymentInitiatedAt = null,
-    decimal? Amount = null)
+    decimal? Amount = null,
+    string Owner = "")
 {
     public static Purchase Create(string purchaseId, string eventId, int seats, string pan,
-        string idempotencyKey, DateTimeOffset createdAt, bool hold = false)
+        string idempotencyKey, DateTimeOffset createdAt, bool hold = false, string owner = "")
     {
         if (!PurchaseIds.IsValid(purchaseId))
             throw new ArgumentException($"Id de compra inválido: '{purchaseId}'.", nameof(purchaseId));
@@ -65,7 +67,7 @@ public sealed record Purchase(
         if (string.IsNullOrWhiteSpace(pan))
             throw new ArgumentException("La PAN es obligatoria.", nameof(pan));
         return new Purchase(purchaseId, eventId, seats, pan, PurchaseStatus.PENDING, createdAt,
-            idempotencyKey) { Hold = hold };
+            idempotencyKey) { Hold = hold, Owner = owner };
     }
 }
 
@@ -79,9 +81,11 @@ public static class HoldTtl
     public const int MinSeconds = 5;
     public const int MaxSeconds = 3600;
 
-    public static int FromEnvironment()
+    /// <summary>Precedencia (D-0024): env HOLD_TTL_SECONDS &gt; Parameter Store &gt; default.</summary>
+    public static int FromEnvironment(string? fromParameterStore = null)
     {
         var raw = Environment.GetEnvironmentVariable("HOLD_TTL_SECONDS");
+        if (string.IsNullOrWhiteSpace(raw)) raw = fromParameterStore;
         if (string.IsNullOrWhiteSpace(raw)) return DefaultSeconds;
         if (!int.TryParse(raw, out var value) || value is < MinSeconds or > MaxSeconds)
             throw new InvalidOperationException(
