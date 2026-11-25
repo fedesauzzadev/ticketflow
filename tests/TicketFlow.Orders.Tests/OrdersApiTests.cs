@@ -33,7 +33,7 @@ public sealed class OrdersApiTests
     {
         EmulatorTestSupport.SkipIfNotConfigured();
         using var factory = NewFactory();
-        var client = factory.CreateClient();
+        var client = factory.CreateAuthClient();
         client.DefaultRequestHeaders.Add("Idempotency-Key",
             "api-test-" + Guid.NewGuid().ToString("N")); // único por corrida: el claim persiste en el emulador
 
@@ -57,7 +57,7 @@ public sealed class OrdersApiTests
     {
         EmulatorTestSupport.SkipIfNotConfigured();
         using var factory = NewFactory();
-        var client = factory.CreateClient();
+        var client = factory.CreateAuthClient();
         client.DefaultRequestHeaders.Remove("Idempotency-Key");
 
         using var content = PurchaseBody();
@@ -75,7 +75,7 @@ public sealed class OrdersApiTests
     {
         EmulatorTestSupport.SkipIfNotConfigured();
         using var factory = NewFactory();
-        var client = factory.CreateClient();
+        var client = factory.CreateAuthClient();
         client.DefaultRequestHeaders.Add("Idempotency-Key", "k-1");
 
         using var invalid = new StringContent(
@@ -95,7 +95,7 @@ public sealed class OrdersApiTests
     {
         EmulatorTestSupport.SkipIfNotConfigured();
         using var factory = NewFactory();
-        var client = factory.CreateClient();
+        var client = factory.CreateAuthClient();
         client.DefaultRequestHeaders.Add("Idempotency-Key", "k-2");
 
         using var garbage = new StringContent("{ no es json ]", Encoding.UTF8, "application/json");
@@ -108,7 +108,7 @@ public sealed class OrdersApiTests
     {
         EmulatorTestSupport.SkipIfNotConfigured();
         using var factory = NewFactory();
-        var client = factory.CreateClient();
+        var client = factory.CreateAuthClient();
         var key = "api-test-" + Guid.NewGuid().ToString("N"); // único por corrida (L-008)
         client.DefaultRequestHeaders.Add("Idempotency-Key", key);
 
@@ -133,7 +133,7 @@ public sealed class OrdersApiTests
     {
         EmulatorTestSupport.SkipIfNotConfigured();
         using var factory = NewFactory();
-        var client = factory.CreateClient();
+        var client = factory.CreateAuthClient();
 
         var notFound = await client.GetAsync("/purchases/pur-00000000000000000000000000000000");
         Assert.Equal(HttpStatusCode.NotFound, notFound.StatusCode);

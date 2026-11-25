@@ -286,6 +286,7 @@ public sealed class DynamoDbPurchaseRepository(IAmazonDynamoDB ddb) : IPurchaseR
             ["idempotency_key"] = new AttributeValue { S = p.IdempotencyKey },
         };
         // Atributos del hold SOLO en holds (D-0017 §1): las compras normales quedan igual que V1.
+        if (p.Owner.Length > 0) item["owner_sub"] = new AttributeValue { S = p.Owner };
         if (p.Hold) item["hold"] = new AttributeValue { N = "1" };
         if (p.Amount is { } amount)
             item["amount"] = new AttributeValue { N = amount.ToString(CultureInfo.InvariantCulture) };
@@ -310,7 +311,8 @@ public sealed class DynamoDbPurchaseRepository(IAmazonDynamoDB ddb) : IPurchaseR
         PaymentInitiatedAt: EpochOf(item, "payment_initiated_at"),
         Amount: item.GetValueOrDefault("amount")?.N is { } amt
             ? decimal.Parse(amt, CultureInfo.InvariantCulture)
-            : null);
+            : null,
+        Owner: item.GetValueOrDefault("owner_sub")?.S ?? "");
 
     private static long? EpochOf(Dictionary<string, AttributeValue> item, string attr) =>
         item.GetValueOrDefault(attr)?.N is { } n ? long.Parse(n, CultureInfo.InvariantCulture) : null;

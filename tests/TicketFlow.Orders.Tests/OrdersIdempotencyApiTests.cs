@@ -54,7 +54,7 @@ public sealed class OrdersIdempotencyApiTests
     {
         EmulatorTestSupport.SkipIfNotConfigured();
         using var factory = NewFactory(new FakeCatalogGateway { Available = null }); // fail-open
-        var client = factory.CreateClient();
+        var client = factory.CreateAuthClient();
         var key = NewKey();
         client.DefaultRequestHeaders.Add("Idempotency-Key", key);
 
@@ -77,7 +77,7 @@ public sealed class OrdersIdempotencyApiTests
     {
         EmulatorTestSupport.SkipIfNotConfigured();
         using var factory = NewFactory(new FakeCatalogGateway());
-        var client = factory.CreateClient();
+        var client = factory.CreateAuthClient();
         var key = NewKey();
         client.DefaultRequestHeaders.Add("Idempotency-Key", key);
 
@@ -103,7 +103,7 @@ public sealed class OrdersIdempotencyApiTests
         EmulatorTestSupport.SkipIfNotConfigured();
         var gateway = new FakeCatalogGateway { Available = 0 }; // evento agotado
         using var factory = NewFactory(gateway);
-        var client = factory.CreateClient();
+        var client = factory.CreateAuthClient();
         var key = NewKey();
         client.DefaultRequestHeaders.Add("Idempotency-Key", key);
 
@@ -137,10 +137,10 @@ public sealed class OrdersIdempotencyApiTests
         var request = new PurchaseRequest("evt-heal-test", 1,
             new CardRequest("4111111111111111", "Eval Evaluador", "12/29", "123"));
         var claimedId = PurchaseIds.New();
-        Assert.True(await store.TryClaimAsync(key, PurchaseBodyHash.Of(request), claimedId, ct));
+        Assert.True(await store.TryClaimAsync($"{AuthTestSupport.Sub()}:{key}", PurchaseBodyHash.Of(request), claimedId, ct));
 
         using var factory = NewFactory(new FakeCatalogGateway());
-        var client = factory.CreateClient();
+        var client = factory.CreateAuthClient();
         client.DefaultRequestHeaders.Add("Idempotency-Key", key);
 
         using var response = await client.PostAsync("/purchases", Body(eventId: "evt-heal-test"));

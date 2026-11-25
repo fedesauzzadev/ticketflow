@@ -50,7 +50,7 @@ services:
     environment:
       <<: *service-env
       CATALOG_BASE_URL: http://catalog:5080 # DNS interno de compose
-      HOLD_TTL_SECONDS: ${HOLD_TTL_SECONDS:-90}
+      HOLD_TTL_SECONDS: ${HOLD_TTL_SECONDS:-} # vacío: lo decide Parameter Store (D-0024)
 
   payments:
     <<: *service
