@@ -188,6 +188,21 @@ aws @aws ssm put-parameter --name /ticketflow/orders/hold-ttl-seconds --value 30
 
 Código para leer, en orden: [`auth.tf`](infra/terraform/auth.tf) → [`CognitoSetup.cs`](src/Shared/TicketFlow.Shared.Infrastructure/CognitoSetup.cs) → [`ParameterStore.cs`](src/Shared/TicketFlow.Shared.Infrastructure/ParameterStore.cs) → [`CognitoJwtAuth.cs`](src/Services/Orders/TicketFlow.Orders.Api/CognitoJwtAuth.cs) → [`AuthApiTests.cs`](tests/TicketFlow.Orders.Tests/AuthApiTests.cs).
 
+## Bedrock: preguntar sobre un evento (N-4008)
+
+`POST /events/{id}/ask` (Catálogo) llama a la API **Converse** de Bedrock con los datos del evento en el
+system prompt y tu pregunta como mensaje. **El emulador no ejecuta modelos**: `answer` es un texto fijo;
+lo real es el contrato (inference profile, tokens, `stop_reason`, errores).
+
+```powershell
+Invoke-RestMethod -Method Post http://localhost:5080/events/evt-mj-tribute-night/ask -ContentType 'application/json' -Body '{"question":"Cuanto cuesta?"}'
+```
+
+- Modelo: env `BEDROCK_MODEL_ID` (default `us.amazon.nova-micro-v1:0`). Sin el prefijo `us.` falla con `ValidationException` y la API devuelve 503.
+- Pregunta de 1 a 500 caracteres; sin auth ni rate limit (agregarlos antes de usar Bedrock real, que cobra).
+
+Código: [`EventAssistant.cs`](src/Services/Catalog/TicketFlow.Catalog.Api/EventAssistant.cs) → [`EventAssistantTests.cs`](tests/TicketFlow.Catalog.Tests/EventAssistantTests.cs).
+
 ## CI local: todo el gate en un comando (H-08)
 
 ```powershell
@@ -209,7 +224,7 @@ etapa `tests` y los cierra al terminar — solo lo que él levantó).
 `.github/workflows/ci.yml` corre el gate **completo** en `ubuntu-latest` en cada push a
 `master`: invoca **el mismo `scripts/ci.ps1`** que corre el dueño localmente (cero
 deriva). El `preflight` buildea el emulador AWS con el Docker del propio job, extrae
-creds/CA de esa corrida, y la suite completa (213 tests + umbral de cobertura ≥70%)
+creds/CA de esa corrida, y la suite completa (221 tests + umbral de cobertura ≥70%)
 corre contra ese emulador — build 0 warnings → tests → infra-verify → workflow-lint,
 primera etapa que falla = culpable. La validación local del YAML es **estructural**
 (`scripts\validate-workflow.ps1`, etapa `workflow-lint`): PS 5.1 no
@@ -401,7 +416,7 @@ Get-Content .artifacts\logs\orders.log -Wait
 
 ## Verificación
 
-- **Tests:** `dotnet test TicketFlow.sln` → **213/213** (unit + integración contra el emulador real; requiere el emulador arriba y `AWS_EMULATOR_*` en el env — `run-local.ps1` muestra cómo se extraen; el run reporta cobertura de los 4 `Core` y los 4 `.Api`, umbral ≥70% — la tool Provision con umbral propio 86%).
+- **Tests:** `dotnet test TicketFlow.sln` → **221/221** (unit + integración contra el emulador real; requiere el emulador arriba y `AWS_EMULATOR_*` en el env — `run-local.ps1` muestra cómo se extraen; el run reporta cobertura de los 4 `Core` y los 4 `.Api`, umbral ≥70% — la tool Provision con umbral propio 86%).
 - **Evidencias por slice** (comando + salida archivada): [S01 catálogo/cache](brain/evidence/2026-11-13-S01-n1001-verification.md) · [S02 saga+compensación](brain/evidence/2026-11-13-S02-n1002-verification.md) · [S03 idempotencia](brain/evidence/2026-11-14-S03-n1003-verification.md) · [S04 quickstart/demos/mediciones (este slice)](brain/evidence/2026-11-14-S04-n1004-verification.md) · [verificación del emulador](brain/evidence/2026-11-13-emulator-verification.md).
 
 ### Performance medida (NFR-5, local, 50 iteraciones tras warmup)
