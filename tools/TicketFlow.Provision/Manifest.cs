@@ -22,6 +22,8 @@ public sealed record ManifestUserPool(string Name, string ClientName);
 
 public sealed record ManifestParameter(string Name, string Value);
 
+public sealed record ManifestGuardrail(string Name, string BlockedMessage, IReadOnlyList<string> BlockedWords);
+
 /// <summary>
 /// Manifiesto IaC del emulador (D-0019): infra/aws-local.json como fuente de verdad de la LISTA de
 /// recursos (AC6). Clavado contra las constantes de código por tools/TicketFlow.Provision.Tests.
@@ -31,7 +33,8 @@ public sealed record Manifest(
     IReadOnlyList<ManifestQueue> Queues,
     IReadOnlyList<ManifestBucket> Buckets,
     ManifestUserPool? UserPool = null,
-    IReadOnlyList<ManifestParameter>? Parameters = null)
+    IReadOnlyList<ManifestParameter>? Parameters = null,
+    ManifestGuardrail? Guardrail = null)
 {
     private static readonly JsonSerializerOptions Json =
         new() { PropertyNameCaseInsensitive = true };
@@ -85,6 +88,12 @@ public sealed record Manifest(
                 || string.IsNullOrWhiteSpace(p.Value))
                 throw new InvalidManifestException(
                     $"Parámetro '{p?.Name}'inválido: nombre bajo '{ParameterNames.Root}' y valor no vacío.");
+
+        if (Guardrail is { } g
+            && (string.IsNullOrWhiteSpace(g.Name) || string.IsNullOrWhiteSpace(g.BlockedMessage)
+                || g.BlockedWords is not { Count: > 0 } || g.BlockedWords.Any(string.IsNullOrWhiteSpace)))
+            throw new InvalidManifestException(
+                "'guardrail' inválido: name, blockedMessage y blockedWords (no vacíos) son obligatorios.");
 
         foreach (var table in Tables)
         {

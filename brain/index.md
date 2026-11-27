@@ -33,6 +33,8 @@ TicketFlow: portfolio backend de venta de entradas para eventos de alta demanda 
 | N-4007 | Parameter Store + Cognito: configuración externa y compra autenticada en Órdenes | feature | L | verified | depends_on N-4006 · slice v3 · → D-0024 · evidencia 2026-11-25-S17 (213; run-k8s sin verificar) |
 | N-4008 | Bedrock (emulador): preguntar sobre un evento con Converse | feature | M | verified | depends_on N-4007 · slice v3 · evidencia 2026-11-26-S18 (221) |
 | N-4009 | Bedrock: guardrail opcional en el asistente de eventos | feature | S | verified | depends_on N-4008 · evidencia 2026-11-26-S19 (222) |
+| N-4010 | Bedrock: Provision crea el guardrail y publica su id | feature | S | verified | depends_on N-4009 · evidencia 2026-11-27-S20 (227) |
+| N-4011 | Bedrock: guardrail desde Parameter Store y Terraform | feature | S | verified | depends_on N-4010 · evidencia 2026-11-27-S21 (227) |
 
 ## Decisions
 | ID | Título | Reversibility |

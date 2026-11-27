@@ -7,6 +7,7 @@ using Amazon.Bedrock;
 using Amazon.Bedrock.Model;
 using Amazon.BedrockRuntime;
 using Amazon.Runtime;
+using Amazon.SimpleSystemsManagement.Model;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.DependencyInjection;
@@ -137,8 +138,11 @@ public sealed class EventAssistantTests
             BlockedOutputsMessaging = "bloqueado",
             WordPolicyConfig = new GuardrailWordPolicyConfig { WordsConfig = [new() { Text = "reventa" }] },
         })).GuardrailId;
+        using var ssm = EmulatorAwsClients.CreateSsm(options);
+        var original = (await ParameterStore.LoadAsync(ssm)).GetValueOrDefault(ParameterNames.GuardrailId);
         try
         {
+            await DeleteParameter();
             var blocked = await AskWithGuardrail(id, "¿Dónde hago reventa?");
             Assert.Equal(HttpStatusCode.OK, blocked.Status);
             Assert.Equal("guardrail_intervened", blocked.Body.GetProperty("stop_reason").GetString());
@@ -147,16 +151,43 @@ public sealed class EventAssistantTests
             var allowed = await AskWithGuardrail(id, "¿Cuánto cuesta?");
             Assert.Equal("end_turn", allowed.Body.GetProperty("stop_reason").GetString());
 
-            var unfiltered = await AskWithGuardrail("  ", "¿Dónde hago reventa?");
+            var unfiltered = await AskWithGuardrail("  ", "¿Dónde hago reventa?"); // sin env ni parámetro
             Assert.Equal("end_turn", unfiltered.Body.GetProperty("stop_reason").GetString());
+
+            await CognitoSetup.PutAsync(ssm, ParameterNames.GuardrailId, id, overwrite: true);
+            var fromParameter = await AskWithGuardrail("  ", "¿Dónde hago reventa?");
+            Assert.Equal("guardrail_intervened", fromParameter.Body.GetProperty("stop_reason").GetString());
+
+            var envWins = await AskWithGuardrail("noexiste", "¿Cuánto cuesta?");
+            Assert.Equal(HttpStatusCode.ServiceUnavailable, envWins.Status);
+
+            await bedrock.DeleteGuardrailAsync(new DeleteGuardrailRequest { GuardrailIdentifier = id });
+            Assert.Equal(HttpStatusCode.ServiceUnavailable, (await AskWithGuardrail(id, "hola")).Status);
+            Assert.Equal(HttpStatusCode.ServiceUnavailable, (await AskWithGuardrail("  ", "hola")).Status);
         }
         finally
         {
-            await bedrock.DeleteGuardrailAsync(new DeleteGuardrailRequest { GuardrailIdentifier = id });
+            if (original is null) await DeleteParameter();
+            else await CognitoSetup.PutAsync(ssm, ParameterNames.GuardrailId, original, overwrite: true);
+            try
+            {
+                await bedrock.DeleteGuardrailAsync(new DeleteGuardrailRequest { GuardrailIdentifier = id });
+            }
+            catch (Amazon.Bedrock.Model.ResourceNotFoundException)
+            {
+            }
         }
 
-        var missing = await AskWithGuardrail(id, "¿Cuánto cuesta?"); // ya borrado
-        Assert.Equal(HttpStatusCode.ServiceUnavailable, missing.Status);
+        async Task DeleteParameter()
+        {
+            try
+            {
+                await ssm.DeleteParameterAsync(new DeleteParameterRequest { Name = ParameterNames.GuardrailId });
+            }
+            catch (ParameterNotFoundException)
+            {
+            }
+        }
     }
 
     private static async Task<(HttpStatusCode Status, JsonElement Body)> AskWithGuardrail(string id, string question)

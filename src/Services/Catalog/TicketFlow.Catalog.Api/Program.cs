@@ -31,9 +31,15 @@ builder.Services.AddSingleton<TicketFlow.Shared.Infrastructure.FailureInjector>(
 builder.Services.AddSingleton<IAmazonBedrockRuntime>(
     sp => EmulatorAwsClients.CreateBedrockRuntime(awsOptions, sp.GetRequiredService<ILoggerFactory>()));
 var modelId = Environment.GetEnvironmentVariable("BEDROCK_MODEL_ID");
-// Guardrail opcional (N-4009). Un id que no existe hace fallar la llamada: nunca se responde sin filtrar.
+// Guardrail opcional (N-4009/N-4011): env > Parameter Store (D-0024) > sin filtro. Un id que no existe
+// hace fallar la llamada: nunca se responde sin filtrar.
 var guardrailId = Environment.GetEnvironmentVariable("BEDROCK_GUARDRAIL_ID")?.Trim();
 var guardrailVersion = Environment.GetEnvironmentVariable("BEDROCK_GUARDRAIL_VERSION")?.Trim();
+if (string.IsNullOrEmpty(guardrailId))
+{
+    using var ssm = EmulatorAwsClients.CreateSsm(awsOptions);
+    guardrailId = (await ParameterStore.LoadAsync(ssm)).GetValueOrDefault(ParameterNames.GuardrailId)?.Trim();
+}
 var guardrail = string.IsNullOrEmpty(guardrailId) ? null : new GuardrailConfiguration
 {
     GuardrailIdentifier = guardrailId,
@@ -73,6 +79,8 @@ var excludePrefix = Environment.GetEnvironmentVariable("CATALOG_EXCLUDE_ID_PREFI
 app.Logger.LogInformation(
     "catálogo listo en :{Port} — seed aplicado ({Count} eventos, condicional), tabla {Table}",
     port, seed.Count, DynamoDbEventRepository.TableName);
+
+app.Logger.LogInformation("guardrail del asistente: {Guardrail}", guardrail?.GuardrailIdentifier ?? "ninguno (sin filtro)");
 
 // Errores 500 sin internals (NFR-4).
 app.UseExceptionHandler(errorApp => errorApp.Run(ctx =>

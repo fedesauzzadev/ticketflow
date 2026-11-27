@@ -10,6 +10,7 @@ public static class ParameterNames
     public const string UserPoolId = Root + "auth/user-pool-id";
     public const string ClientId = Root + "auth/client-id";
     public const string HoldTtlSeconds = Root + "orders/hold-ttl-seconds";
+    public const string GuardrailId = Root + "catalog/guardrail-id";
 }
 
 public static class ParameterStore

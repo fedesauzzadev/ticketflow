@@ -1,3 +1,5 @@
+using Amazon.Bedrock;
+using Amazon.Bedrock.Model;
 using Amazon.CognitoIdentityProvider;
 using Amazon.DynamoDBv2;
 using Amazon.DynamoDBv2.Model;
@@ -68,6 +70,7 @@ public static class Program
             using var s3 = EmulatorAwsClients.CreateS3(options);
             using var ssm = EmulatorAwsClients.CreateSsm(options);
             using var cognito = EmulatorAwsClients.CreateCognito(options);
+            using var bedrock = EmulatorAwsClients.CreateBedrock(options);
             if (tokenUser is not null)
             {
                 // Solo el token en stdout: los scripts lo capturan tal cual.
@@ -78,11 +81,13 @@ public static class Program
             {
                 var applied = await ApplyAsync(manifest, ddb, sqs, s3, stdout, ct);
                 await ApplyAuthAndParametersAsync(manifest, cognito, ssm, stdout, ct);
+                await ApplyGuardrailAsync(manifest, bedrock, ssm, stdout, ct);
                 return applied;
             }
-            var missing = await VerifyAuthAndParametersAsync(manifest, cognito, ssm, stdout, ct);
+            var missing = await VerifyAuthAndParametersAsync(manifest, cognito, ssm, stdout, ct)
+                + await VerifyGuardrailAsync(manifest, bedrock, ssm, stdout, ct);
             var exit = await VerifyAsync(manifest, ddb, sqs, s3, stdout, ct);
-            if (missing > 0) stdout.WriteLine($"verificación FALLÓ: {missing} diferencia(s) en Cognito/Parameter Store.");
+            if (missing > 0) stdout.WriteLine($"verificación FALLÓ: {missing} diferencia(s) en Cognito/Parameter Store/guardrail.");
             return missing > 0 ? 1 : exit;
         }
         catch (Exception ex)
@@ -146,6 +151,55 @@ public static class Program
         foreach (var p in manifest.Parameters ?? [])
             Check(real.ContainsKey(p.Name), $"parámetro '{p.Name}'");
         return problems;
+    }
+
+    // --- Guardrail de Bedrock (N-4010) -----------------------------------------------
+
+    // shortcut: se crea si falta y no se actualiza; si cambian las palabras en el manifiesto hay que
+    // borrar el guardrail (o actualizarlo a mano). Pasar a UpdateGuardrail cuando el manifiesto cambie seguido.
+    // Dos apply a la vez en frío: uno falla con "already exists" (sin duplicar); reintentar.
+    private static async Task ApplyGuardrailAsync(Manifest manifest, IAmazonBedrock bedrock,
+        IAmazonSimpleSystemsManagement ssm, TextWriter o, CancellationToken ct)
+    {
+        if (manifest.Guardrail is not { } g) return;
+        var id = await FindGuardrailIdAsync(bedrock, g.Name, ct)
+            ?? (await bedrock.CreateGuardrailAsync(new CreateGuardrailRequest
+            {
+                Name = g.Name,
+                BlockedInputMessaging = g.BlockedMessage,
+                BlockedOutputsMessaging = g.BlockedMessage,
+                WordPolicyConfig = new GuardrailWordPolicyConfig
+                {
+                    WordsConfig = g.BlockedWords.Select(w => new GuardrailWordConfig { Text = w }).ToList(),
+                },
+            }, ct)).GuardrailId;
+        await CognitoSetup.PutAsync(ssm, ParameterNames.GuardrailId, id, overwrite: true, ct); // id generado por AWS
+        o.WriteLine($"guardrail {g.Name} OK ({id})");
+    }
+
+    private static async Task<int> VerifyGuardrailAsync(Manifest manifest, IAmazonBedrock bedrock,
+        IAmazonSimpleSystemsManagement ssm, TextWriter o, CancellationToken ct)
+    {
+        if (manifest.Guardrail is not { } g) return 0;
+        var id = await FindGuardrailIdAsync(bedrock, g.Name, ct);
+        var published = (await ParameterStore.LoadAsync(ssm, ct)).GetValueOrDefault(ParameterNames.GuardrailId);
+        o.WriteLine("==> Guardrail de Bedrock:");
+        o.WriteLine($"    {(id is null ? "FALTA" : "OK   ")} guardrail '{g.Name}'");
+        var points = id is not null && published == id;
+        o.WriteLine($"    {(points ? "OK   " : "FALTA")} parámetro '{ParameterNames.GuardrailId}' apunta al guardrail");
+        return (id is null ? 1 : 0) + (points ? 0 : 1);
+    }
+
+    private static async Task<string?> FindGuardrailIdAsync(IAmazonBedrock bedrock, string name, CancellationToken ct)
+    {
+        string? next = null;
+        do
+        {
+            var page = await bedrock.ListGuardrailsAsync(new ListGuardrailsRequest { NextToken = next }, ct);
+            if (page.Guardrails?.FirstOrDefault(x => x.Name == name) is { } found) return found.Id;
+            next = page.NextToken;
+        } while (!string.IsNullOrEmpty(next));
+        return null;
     }
 
     // --- --apply ---------------------------------------------------------------------

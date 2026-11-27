@@ -49,6 +49,7 @@ provider "aws" {
     ssm      = var.emulator_endpoint
 
     cognitoidp = var.emulator_endpoint
+    bedrock    = var.emulator_endpoint
   }
 }
 

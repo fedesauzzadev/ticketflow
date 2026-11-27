@@ -8,6 +8,7 @@
 
   <ItemGroup>
     <FrameworkReference Include="Microsoft.AspNetCore.App" />
+    <PackageReference Include="AWSSDK.Bedrock" Version="4.1.1" />
     <PackageReference Include="AWSSDK.BedrockRuntime" Version="4.1.1" />
     <PackageReference Include="AWSSDK.CognitoIdentityProvider" Version="4.1.4" />
     <PackageReference Include="AWSSDK.Core" Version="4.1.1.2" />

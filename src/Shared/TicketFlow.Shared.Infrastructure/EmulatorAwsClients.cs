@@ -1,4 +1,5 @@
 using System.Security.Cryptography.X509Certificates;
+using Amazon.Bedrock;
 using Amazon.BedrockRuntime;
 using Amazon.CognitoIdentityProvider;
 using Amazon.DynamoDBv2;
@@ -155,6 +156,27 @@ public static class EmulatorAwsClients
         // viajaría al emulador): se fuerza SigV4 DESPUÉS de construirlo.
         var config = (AmazonBedrockRuntimeConfig)client.Config;
         config.AuthSchemePreference = ["sigv4"];
+        config.AWSTokenProvider = null;
+        return client;
+    }
+
+    /// <summary>Cliente Bedrock (plano de control: guardrails, N-4010). Misma regla que Bedrock Runtime.</summary>
+    public static AmazonBedrockClient CreateBedrock(EmulatorAwsOptions options, ILoggerFactory? loggerFactory = null)
+    {
+        var pin = new PinnedCaHttpClientFactory(X509CertificateLoader.LoadCertificateFromFile(options.CaPath),
+            "bedrock", loggerFactory);
+        var client = new AmazonBedrockClient(
+            new BasicAWSCredentials(options.AccessKeyId, options.SecretAccessKey),
+            new AmazonBedrockConfig
+            {
+                ServiceURL = options.Endpoint,
+                AuthenticationRegion = options.Region,
+                Timeout = options.Timeout,
+                MaxErrorRetry = 0,
+                HttpClientFactory = pin,
+            });
+        var config = (AmazonBedrockConfig)client.Config;
+        config.AuthSchemePreference = ["sigv4"]; // nunca Bearer, ver CreateBedrockRuntime
         config.AWSTokenProvider = null;
         return client;
     }

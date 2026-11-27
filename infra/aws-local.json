@@ -52,5 +52,6 @@
   ],
   "buckets": [ { "name": "ticketflow-tickets" } ],
   "userPool": { "name": "ticketflow-users", "clientName": "ticketflow-cli" },
+  "guardrail": { "name": "ticketflow-assistant", "blockedMessage": "No puedo responder eso.", "blockedWords": ["reventa"] },
   "parameters": [ { "name": "/ticketflow/orders/hold-ttl-seconds", "value": "90" } ]
 }
