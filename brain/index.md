@@ -32,6 +32,7 @@ TicketFlow: portfolio backend de venta de entradas para eventos de alta demanda 
 | N-4006 | Caso de estudio para portfolio (docs/portfolio.html, corrida real) + fix carrera de CA en emulator-env | feature | S | verified (smoke) | depends_on N-4005 · slice v3 · evidencia docs/portfolio-run.txt |
 | N-4007 | Parameter Store + Cognito: configuración externa y compra autenticada en Órdenes | feature | L | verified | depends_on N-4006 · slice v3 · → D-0024 · evidencia 2026-11-25-S17 (213; run-k8s sin verificar) |
 | N-4008 | Bedrock (emulador): preguntar sobre un evento con Converse | feature | M | verified | depends_on N-4007 · slice v3 · evidencia 2026-11-26-S18 (221) |
+| N-4009 | Bedrock: guardrail opcional en el asistente de eventos | feature | S | verified | depends_on N-4008 · evidencia 2026-11-26-S19 (222) |
 
 ## Decisions
 | ID | Título | Reversibility |

@@ -203,6 +203,26 @@ Invoke-RestMethod -Method Post http://localhost:5080/events/evt-mj-tribute-night
 
 Código: [`EventAssistant.cs`](src/Services/Catalog/TicketFlow.Catalog.Api/EventAssistant.cs) → [`EventAssistantTests.cs`](tests/TicketFlow.Catalog.Tests/EventAssistantTests.cs).
 
+### Guardrail (N-4009)
+
+Con `BEDROCK_GUARDRAIL_ID` (y `BEDROCK_GUARDRAIL_VERSION`, default `DRAFT`) la llamada pasa por un
+guardrail: si interviene, la respuesta es 200 con `stop_reason: guardrail_intervened` y el mensaje
+bloqueado. Si el id no existe, 503. Sin la variable no se filtra. Se lee al arrancar el Catálogo.
+
+```powershell
+. .\scripts\emulator-env.ps1
+```
+
+```powershell
+$env:AWS_ACCESS_KEY_ID=$env:AWS_EMULATOR_ACCESS_KEY_ID; $env:AWS_SECRET_ACCESS_KEY=$env:AWS_EMULATOR_SECRET_ACCESS_KEY; $env:AWS_CA_BUNDLE=$env:AWS_EMULATOR_CA_PATH
+```
+
+```powershell
+$env:BEDROCK_GUARDRAIL_ID = aws bedrock create-guardrail --endpoint-url https://127.0.0.1:9297 --region us-east-1 --name ticketflow-demo --blocked-input-messaging "No puedo responder eso." --blocked-outputs-messaging "No puedo responder eso." --word-policy-config 'wordsConfig=[{text=reventa}]' --query guardrailId --output text
+```
+
+Después, en la misma terminal, arrancá los servicios con `run-local.ps1` y preguntá por "reventa".
+
 ## CI local: todo el gate en un comando (H-08)
 
 ```powershell
@@ -224,7 +244,7 @@ etapa `tests` y los cierra al terminar — solo lo que él levantó).
 `.github/workflows/ci.yml` corre el gate **completo** en `ubuntu-latest` en cada push a
 `master`: invoca **el mismo `scripts/ci.ps1`** que corre el dueño localmente (cero
 deriva). El `preflight` buildea el emulador AWS con el Docker del propio job, extrae
-creds/CA de esa corrida, y la suite completa (221 tests + umbral de cobertura ≥70%)
+creds/CA de esa corrida, y la suite completa (222 tests + umbral de cobertura ≥70%)
 corre contra ese emulador — build 0 warnings → tests → infra-verify → workflow-lint,
 primera etapa que falla = culpable. La validación local del YAML es **estructural**
 (`scripts\validate-workflow.ps1`, etapa `workflow-lint`): PS 5.1 no
@@ -416,7 +436,7 @@ Get-Content .artifacts\logs\orders.log -Wait
 
 ## Verificación
 
-- **Tests:** `dotnet test TicketFlow.sln` → **221/221** (unit + integración contra el emulador real; requiere el emulador arriba y `AWS_EMULATOR_*` en el env — `run-local.ps1` muestra cómo se extraen; el run reporta cobertura de los 4 `Core` y los 4 `.Api`, umbral ≥70% — la tool Provision con umbral propio 86%).
+- **Tests:** `dotnet test TicketFlow.sln` → **222/222** (unit + integración contra el emulador real; requiere el emulador arriba y `AWS_EMULATOR_*` en el env — `run-local.ps1` muestra cómo se extraen; el run reporta cobertura de los 4 `Core` y los 4 `.Api`, umbral ≥70% — la tool Provision con umbral propio 86%).
 - **Evidencias por slice** (comando + salida archivada): [S01 catálogo/cache](brain/evidence/2026-11-13-S01-n1001-verification.md) · [S02 saga+compensación](brain/evidence/2026-11-13-S02-n1002-verification.md) · [S03 idempotencia](brain/evidence/2026-11-14-S03-n1003-verification.md) · [S04 quickstart/demos/mediciones (este slice)](brain/evidence/2026-11-14-S04-n1004-verification.md) · [verificación del emulador](brain/evidence/2026-11-13-emulator-verification.md).
 
 ### Performance medida (NFR-5, local, 50 iteraciones tras warmup)

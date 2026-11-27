@@ -9,7 +9,8 @@ namespace TicketFlow.Catalog.Api;
 /// Asistente de eventos sobre la API Converse de Bedrock (N-4008). Los datos del evento van en el
 /// system prompt y la pregunta del usuario como mensaje: nunca se mezclan.
 /// </summary>
-public sealed class EventAssistant(IAmazonBedrockRuntime bedrock, string modelId)
+public sealed class EventAssistant(
+    IAmazonBedrockRuntime bedrock, string modelId, GuardrailConfiguration? guardrail = null)
 {
     // On-demand exige un inference profile (prefijo us.), no el id del modelo suelto.
     public const string DefaultModelId = "us.amazon.nova-micro-v1:0";
@@ -23,6 +24,7 @@ public sealed class EventAssistant(IAmazonBedrockRuntime bedrock, string modelId
             System = [new SystemContentBlock { Text = SystemPrompt(evt) }],
             Messages = [new Message { Role = ConversationRole.User, Content = [new ContentBlock { Text = question }] }],
             InferenceConfig = new InferenceConfiguration { MaxTokens = 300, Temperature = 0.2f },
+            GuardrailConfig = guardrail, // si interviene: stop_reason guardrail_intervened + mensaje bloqueado
         }, ct);
 
         var answer = string.Concat(response.Output?.Message?.Content?.Select(c => c.Text) ?? []);

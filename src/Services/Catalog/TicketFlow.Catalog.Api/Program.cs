@@ -1,5 +1,6 @@
 using System.Text.Json;
 using Amazon.BedrockRuntime;
+using Amazon.BedrockRuntime.Model;
 using Amazon.DynamoDBv2;
 using Amazon.SQS;
 using TicketFlow.Catalog.Api;
@@ -30,8 +31,16 @@ builder.Services.AddSingleton<TicketFlow.Shared.Infrastructure.FailureInjector>(
 builder.Services.AddSingleton<IAmazonBedrockRuntime>(
     sp => EmulatorAwsClients.CreateBedrockRuntime(awsOptions, sp.GetRequiredService<ILoggerFactory>()));
 var modelId = Environment.GetEnvironmentVariable("BEDROCK_MODEL_ID");
+// Guardrail opcional (N-4009). Un id que no existe hace fallar la llamada: nunca se responde sin filtrar.
+var guardrailId = Environment.GetEnvironmentVariable("BEDROCK_GUARDRAIL_ID")?.Trim();
+var guardrailVersion = Environment.GetEnvironmentVariable("BEDROCK_GUARDRAIL_VERSION")?.Trim();
+var guardrail = string.IsNullOrEmpty(guardrailId) ? null : new GuardrailConfiguration
+{
+    GuardrailIdentifier = guardrailId,
+    GuardrailVersion = string.IsNullOrEmpty(guardrailVersion) ? "DRAFT" : guardrailVersion,
+};
 builder.Services.AddSingleton(sp => new EventAssistant(sp.GetRequiredService<IAmazonBedrockRuntime>(),
-    string.IsNullOrWhiteSpace(modelId) ? EventAssistant.DefaultModelId : modelId.Trim()));
+    string.IsNullOrWhiteSpace(modelId) ? EventAssistant.DefaultModelId : modelId.Trim(), guardrail));
 
 builder.Services.AddHybridCache(); // cache in-app (D-0007)
 builder.Services.AddSingleton<AvailabilityCacheOptions>();

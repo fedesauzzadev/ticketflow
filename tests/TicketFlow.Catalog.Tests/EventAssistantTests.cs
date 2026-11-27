@@ -1,8 +1,12 @@
 using System.Net;
 using System.Net.Http.Json;
+using System.Security.Cryptography.X509Certificates;
 using System.Text;
 using System.Text.Json;
+using Amazon.Bedrock;
+using Amazon.Bedrock.Model;
 using Amazon.BedrockRuntime;
+using Amazon.Runtime;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.DependencyInjection;
@@ -95,7 +99,9 @@ public sealed class EventAssistantTests
         var down = new EmulatorAwsOptions
         {
             Endpoint = "https://127.0.0.1:1", // nadie escucha
-            AccessKeyId = env.AccessKeyId, SecretAccessKey = env.SecretAccessKey, CaPath = env.CaPath,
+            AccessKeyId = env.AccessKeyId,
+            SecretAccessKey = env.SecretAccessKey,
+            CaPath = env.CaPath,
         };
         using var factory = new WebApplicationFactory<Program>().WithWebHostBuilder(b =>
             b.ConfigureTestServices(s => s.AddSingleton<IAmazonBedrockRuntime>(
@@ -107,6 +113,65 @@ public sealed class EventAssistantTests
         {
             var response = await client.PostAsJsonAsync($"/events/{id}/ask", new { question = "hola" });
             Assert.Equal(HttpStatusCode.ServiceUnavailable, response.StatusCode);
+        }
+    }
+
+    [SkippableFact]
+    public async Task Ask_applies_the_configured_guardrail_and_fails_closed_when_it_is_missing()
+    {
+        EmulatorTestSupport.SkipIfNotConfigured();
+        var options = EmulatorAwsOptions.FromEnvironment();
+        using var bedrock = new AmazonBedrockClient(
+            new BasicAWSCredentials(options.AccessKeyId, options.SecretAccessKey),
+            new AmazonBedrockConfig
+            {
+                ServiceURL = options.Endpoint,
+                AuthenticationRegion = options.Region,
+                HttpClientFactory = new PinnedCaHttpClientFactory(
+                    X509CertificateLoader.LoadCertificateFromFile(options.CaPath), "bedrock"),
+            });
+        var id = (await bedrock.CreateGuardrailAsync(new CreateGuardrailRequest
+        {
+            Name = "it-" + Guid.NewGuid().ToString("N")[..12],
+            BlockedInputMessaging = "bloqueado",
+            BlockedOutputsMessaging = "bloqueado",
+            WordPolicyConfig = new GuardrailWordPolicyConfig { WordsConfig = [new() { Text = "reventa" }] },
+        })).GuardrailId;
+        try
+        {
+            var blocked = await AskWithGuardrail(id, "¿Dónde hago reventa?");
+            Assert.Equal(HttpStatusCode.OK, blocked.Status);
+            Assert.Equal("guardrail_intervened", blocked.Body.GetProperty("stop_reason").GetString());
+            Assert.Equal("bloqueado", blocked.Body.GetProperty("answer").GetString());
+
+            var allowed = await AskWithGuardrail(id, "¿Cuánto cuesta?");
+            Assert.Equal("end_turn", allowed.Body.GetProperty("stop_reason").GetString());
+
+            var unfiltered = await AskWithGuardrail("  ", "¿Dónde hago reventa?");
+            Assert.Equal("end_turn", unfiltered.Body.GetProperty("stop_reason").GetString());
+        }
+        finally
+        {
+            await bedrock.DeleteGuardrailAsync(new DeleteGuardrailRequest { GuardrailIdentifier = id });
+        }
+
+        var missing = await AskWithGuardrail(id, "¿Cuánto cuesta?"); // ya borrado
+        Assert.Equal(HttpStatusCode.ServiceUnavailable, missing.Status);
+    }
+
+    private static async Task<(HttpStatusCode Status, JsonElement Body)> AskWithGuardrail(string id, string question)
+    {
+        Environment.SetEnvironmentVariable("BEDROCK_GUARDRAIL_ID", id);
+        try
+        {
+            using var factory = new WebApplicationFactory<Program>();
+            var client = factory.CreateClient();
+            var response = await client.PostAsJsonAsync($"/events/{await FirstEventId(client)}/ask", new { question });
+            return (response.StatusCode, await response.Content.ReadFromJsonAsync<JsonElement>());
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("BEDROCK_GUARDRAIL_ID", null);
         }
     }
 
