@@ -12,6 +12,7 @@ Un evaluador clona el repo, corre un comando, y ve con curl: catálogo con cache
 flowchart LR
     E[Evaluador<br/>curl / scripts] -->|GET /events| CAT[Catálogo :5080<br/>cache-aside + X-Cache]
     E -.->|1. login| COG[Cognito]
+    E -->|POST /events/{id}/ask| CAT
     E -->|POST /purchases<br/>Bearer token + Idempotency-Key| ORD[Órdenes :5081<br/>process manager]
     E -->|GET /purchases/{id}| ORD
     E -->|GET /tickets/{id}| TIC[Ticketing :5083]
@@ -28,6 +29,7 @@ flowchart LR
       DDB[(DynamoDB)]
       COG
       SSM[Parameter Store]
+      BR[Bedrock + guardrail]
       SQS[SQS FIFO]
       S3[(S3)]
     end
@@ -40,13 +42,15 @@ flowchart LR
     TIC -.ticket QR.-> S3
     ORD -.config al arrancar.-> SSM
     ORD -.claves públicas.-> COG
+    CAT -.guardrail al arrancar.-> SSM
+    CAT -.Converse.-> BR
 ```
 
 ## Los 4 servicios
 
 | Servicio | Puerto | Responsabilidad | Estado propio (DynamoDB) |
 |---|---|---|---|
-| **Catálogo** | 5080 | Eventos y disponibilidad; cache-aside con TTL 30s + invalidación al reservar/liberar; worker `reserve-seats`/`release-seats` con decremento condicional (anti-oversell) | `catalog_events` |
+| **Catálogo** | 5080 | Eventos y disponibilidad; cache-aside con TTL 30s + invalidación al reservar/liberar; worker `reserve-seats`/`release-seats` con decremento condicional (anti-oversell); asistente de eventos con Bedrock | `catalog_events` |
 | **Órdenes** | 5081 | Process manager de la saga; estado de la compra (`PENDING→SEATS_RESERVED→PAYMENT_APPROVED→TICKETS_ISSUED \| FAILED`); idempotencia HTTP por `Idempotency-Key`; outbox | `purchases`, `orders_outbox`, `orders_idempotency` |
 | **Pagos** | 5082 | Autorización simulada determinística (PAN `…0002` = rechazo; otro = aprobada); idempotente por compra | `payments` |
 | **Ticketing** | 5083 | Emisión de entradas + payload QR en S3 + evento interno de notificación (log visible) | `tickets` |
@@ -59,6 +63,15 @@ flowchart LR
 | **Propiedad** | Cada compra guarda el `sub` del usuario (`owner_sub`). Compra ajena ⇒ 404; la `Idempotency-Key` se guarda como `sub:key` |
 | **Parameter Store** | `/ticketflow/auth/user-pool-id`, `/ticketflow/auth/client-id`, `/ticketflow/orders/hold-ttl-seconds`. Órdenes los lee al arrancar y no arranca si faltan los de auth |
 | **Quién los crea** | `scripts/provision.ps1` (lo invocan los `run-*`) o Terraform (`infra/terraform/auth.tf`), desde el mismo manifiesto |
+
+## Asistente de eventos (Bedrock)
+
+| Pieza | Detalle |
+|---|---|
+| **Endpoint** | `POST /events/{id}/ask` en Catálogo: pregunta de 1 a 500 caracteres; sin auth ni límite de peticiones |
+| **Modelo** | API Converse; `BEDROCK_MODEL_ID` (default `us.amazon.nova-micro-v1:0`). El emulador no ejecuta modelos |
+| **Guardrail** | `BEDROCK_GUARDRAIL_ID` > `/ticketflow/catalog/guardrail-id` > sin filtro; se lee al arrancar. Id inexistente ⇒ 503 |
+| **Quién lo crea** | `scripts/provision.ps1` o `infra/terraform/bedrock.tf`, desde el mismo manifiesto |
 
 ## La saga (camino feliz y compensación)
 

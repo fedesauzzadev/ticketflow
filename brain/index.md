@@ -35,6 +35,7 @@ TicketFlow: portfolio backend de venta de entradas para eventos de alta demanda 
 | N-4009 | Bedrock: guardrail opcional en el asistente de eventos | feature | S | verified | depends_on N-4008 · evidencia 2026-11-26-S19 (222) |
 | N-4010 | Bedrock: Provision crea el guardrail y publica su id | feature | S | verified | depends_on N-4009 · evidencia 2026-11-27-S20 (227) |
 | N-4011 | Bedrock: guardrail desde Parameter Store y Terraform | feature | S | verified | depends_on N-4010 · evidencia 2026-11-27-S21 (227) |
+| N-4012 | Docs: Bedrock en portfolio, CHANGELOG y arquitectura | feature | S | verified (smoke) | depends_on N-4011 |
 
 ## Decisions
 | ID | Título | Reversibility |

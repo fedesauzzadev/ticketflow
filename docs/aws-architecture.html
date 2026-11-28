@@ -45,7 +45,7 @@
 </head>
 <body>
 <h1>🔧 Cómo está integrado AWS (todo local, en el emulador)</h1>
-<p class="sub">TicketFlow v0.3.0 · las mismas APIs de DynamoDB, SQS, S3, Cognito y Parameter Store contra un contenedor Docker · cero nube real, cero costo, cero secrets en el repo</p>
+<p class="sub">TicketFlow v0.3.0 · las mismas APIs de DynamoDB, SQS, S3, Cognito, Parameter Store y Bedrock contra un contenedor Docker · cero nube real, cero costo, cero secrets en el repo</p>
 
 <h2>1 · El mapa completo</h2>
 <div class="map">
@@ -75,6 +75,7 @@
         <li>🗃️ <span class="res mono">catalog_events</span> — eventos + disponibilidad (decremento atómico)</li>
         <li>⚡ cache in-app (HybridCache) — nada de AWS, invalidada al reservar</li>
         <li>📮 consume <span class="res mono">catalog-commands</span> (reservar / liberar)</li>
+        <li>🤖 <span class="res mono">Bedrock Converse</span> — responde preguntas sobre un evento, con guardrail leído de <span class="res mono">Parameter Store</span></li>
       </ul>
     </div>
     <div class="svc-card">
@@ -104,7 +105,8 @@
       <div class="mini"><b>📮 SQS FIFO</b><span>8 colas (4 + 4 DLQ)</span></div>
       <div class="mini"><b>🪣 S3</b><span>1 bucket (QRs)</span></div>
       <div class="mini"><b>🔐 Cognito</b><span>usuarios y tokens</span></div>
-      <div class="mini"><b>⚙️ Parameter Store</b><span>3 parámetros</span></div>
+      <div class="mini"><b>⚙️ Parameter Store</b><span>4 parámetros</span></div>
+      <div class="mini"><b>🤖 Bedrock</b><span>Converse + 1 guardrail</span></div>
     </div>
     <p style="font-size:12.5px;color:var(--mut);margin-top:8px;text-align:center">
       CA autofirmada regenerada en cada corrida (<span class="mono">docker cp → .secrets/ca.pem</span>, gitignored) ·
@@ -151,6 +153,8 @@
     <tr><td class="mono">ticketflow-tickets</td><td>S3</td><td>Ticketing — QR de cada entrada</td></tr>
     <tr><td class="mono">ticketflow-users + ticketflow-cli</td><td>Cognito</td><td>login; Órdenes valida los tokens</td></tr>
     <tr><td class="mono">/ticketflow/auth/*, /ticketflow/orders/hold-ttl-seconds</td><td>Parameter Store</td><td>Órdenes — configuración al arrancar</td></tr>
+    <tr><td class="mono">ticketflow-assistant</td><td>Bedrock guardrail</td><td>Catálogo — filtra las preguntas al asistente</td></tr>
+    <tr><td class="mono">/ticketflow/catalog/guardrail-id</td><td>Parameter Store</td><td>Catálogo — id del guardrail al arrancar</td></tr>
   </table>
   <p class="why" style="margin-top:8px">Todo esto vive declarado en <span class="mono">infra/aws-local.json</span> y se crea con <span class="mono">scripts\provision.ps1</span> (idempotente, <span class="mono">-Verify</span> compara 1:1 contra el emulador).</p>
 </div>
@@ -163,6 +167,6 @@ powershell -File scripts\run-local.ps1       <span style="color:#8b93a7"># 3) bu
   <p class="why">Requisito único: Docker Desktop. Sin cuenta AWS, sin tarjetas, sin internet.</p>
 </div>
 
-<p class="sub" style="margin-top:26px">TicketFlow v0.3.0 · integración verificada contra el emulador real en cada corrida (probe F2, verificación IaC contra el manifiesto, suite 213/213) · docs/aws-architecture.html</p>
+<p class="sub" style="margin-top:26px">TicketFlow v0.3.0 · integración verificada contra el emulador real en cada corrida (probe F2, verificación IaC contra el manifiesto, suite 227/227) · docs/aws-architecture.html</p>
 </body>
 </html>
