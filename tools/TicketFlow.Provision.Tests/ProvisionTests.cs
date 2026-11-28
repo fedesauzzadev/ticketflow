@@ -1,6 +1,7 @@
 using TicketFlow.Catalog.Core.Infrastructure;
 using TicketFlow.Orders.Core.Infrastructure;
 using TicketFlow.Payments.Core.Infrastructure;
+using TicketFlow.Shared.Infrastructure;
 using TicketFlow.Shared.Infrastructure.Saga;
 using TicketFlow.Ticketing.Core.Infrastructure;
 
@@ -219,6 +220,57 @@ public sealed class ProvisionToolTests
     }
 
     [SkippableFact]
+    public async Task Guardrail_is_created_published_verified_and_recreated()
+    {
+        EmulatorTestSupport.SkipIfNotConfigured();
+        var options = EmulatorAwsOptions.FromEnvironment();
+        using var bedrock = EmulatorAwsClients.CreateBedrock(options);
+        using var ssm = EmulatorAwsClients.CreateSsm(options);
+
+        var name = "it-" + Guid.NewGuid().ToString("N")[..12];
+        var node = System.Text.Json.Nodes.JsonNode.Parse(File.ReadAllText(Repo.ManifestPath))!;
+        node["guardrail"]!["name"] = name;
+        var path = Path.Combine(Path.GetTempPath(), name + ".json");
+        await File.WriteAllTextAsync(path, node.ToJsonString());
+
+        async Task<List<string>> Ids() =>
+            ((await bedrock.ListGuardrailsAsync(new() { MaxResults = 1000 })).Guardrails ?? [])
+                .Where(g => g.Name == name).Select(g => g.Id).ToList();
+        async Task<string> Published() =>
+            (await ParameterStore.LoadAsync(ssm)).Required(ParameterNames.GuardrailId);
+        try
+        {
+            var missing = await Run("--verify", "--manifest", path);
+            Assert.Equal(1, missing.Exit);
+            Assert.Contains($"FALTA guardrail '{name}'", missing.Output);
+
+            Assert.Equal(0, (await Run("--apply", "--manifest", path)).Exit);
+            var id = Assert.Single(await Ids());
+            Assert.Equal(id, await Published());
+            Assert.Equal(0, (await Run("--apply", "--manifest", path)).Exit);
+            Assert.Equal(id, Assert.Single(await Ids()));
+            Assert.Equal(0, (await Run("--verify", "--manifest", path)).Exit);
+
+            await CognitoSetup.PutAsync(ssm, ParameterNames.GuardrailId, "otro", overwrite: true);
+            var stale = await Run("--verify", "--manifest", path);
+            Assert.Equal(1, stale.Exit);
+            Assert.Contains($"FALTA parámetro '{ParameterNames.GuardrailId}'", stale.Output);
+
+            await bedrock.DeleteGuardrailAsync(new() { GuardrailIdentifier = id });
+            Assert.Equal(0, (await Run("--apply", "--manifest", path)).Exit);
+            var recreated = Assert.Single(await Ids());
+            Assert.NotEqual(id, recreated);
+            Assert.Equal(recreated, await Published());
+        }
+        finally
+        {
+            foreach (var id in await Ids()) await bedrock.DeleteGuardrailAsync(new() { GuardrailIdentifier = id });
+            await Run("--apply", "--manifest", Repo.ManifestPath); // el parámetro vuelve al guardrail real
+            File.Delete(path);
+        }
+    }
+
+    [SkippableFact]
     public async Task Verify_exits_one_with_diff_when_resource_is_missing()
     {
         EmulatorTestSupport.SkipIfNotConfigured();
@@ -244,5 +296,44 @@ public sealed class ProvisionToolTests
         {
             File.Delete(path);
         }
+    }
+}
+
+/// <summary>Cognito + Parameter Store en el manifiesto (D-0024): mismo guard que tablas y colas.</summary>
+public sealed class ManifestAuthGuardTests
+{
+    [Fact]
+    public void User_pool_and_parameters_match_code_constants()
+    {
+        var manifest = Manifest.Load(Repo.ManifestPath);
+        Assert.Equal(CognitoSetup.UserPoolName, manifest.UserPool!.Name);
+        Assert.Equal(CognitoSetup.ClientName, manifest.UserPool.ClientName);
+        Assert.Equal(ParameterNames.HoldTtlSeconds, Assert.Single(manifest.Parameters!).Name);
+    }
+
+    [Theory]
+    [InlineData("""{"name":" ","blockedMessage":"no","blockedWords":["x"]}""")]
+    [InlineData("""{"name":"g","blockedWords":["x"]}""")]
+    [InlineData("""{"name":"g","blockedMessage":"no","blockedWords":[]}""")]
+    [InlineData("""{"name":"g","blockedMessage":"no","blockedWords":[null]}""")]
+    public void Parse_rejects_unusable_guardrail(string guardrail)
+    {
+        var node = System.Text.Json.Nodes.JsonNode.Parse(File.ReadAllText(Repo.ManifestPath))!;
+        node["guardrail"] = System.Text.Json.Nodes.JsonNode.Parse(guardrail);
+        Assert.Contains("guardrail",
+            Assert.Throws<InvalidManifestException>(() => Manifest.Parse(node.ToJsonString())).Message);
+    }
+
+    [Theory]
+    [InlineData("""{"name":"otro-pool","clientName":"ticketflow-cli"}""", "[]")]
+    [InlineData("null", """[{"name":"/otra-raiz/x","value":"1"}]""")]
+    [InlineData("null", """[{"name":"/ticketflow/x","value":" "}]""")]
+    [InlineData("null", "[null]")]
+    public void Parse_rejects_unusable_auth_or_parameters(string userPool, string parameters)
+    {
+        var node = System.Text.Json.Nodes.JsonNode.Parse(File.ReadAllText(Repo.ManifestPath))!;
+        node["userPool"] = System.Text.Json.Nodes.JsonNode.Parse(userPool);
+        node["parameters"] = System.Text.Json.Nodes.JsonNode.Parse(parameters);
+        Assert.Throws<InvalidManifestException>(() => Manifest.Parse(node.ToJsonString()));
     }
 }

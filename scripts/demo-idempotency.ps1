@@ -12,6 +12,10 @@ param(
 
 $ErrorActionPreference = 'Stop'
 
+# Comprar exige un access token de Cognito (D-0024).
+. (Join-Path $PSScriptRoot 'auth.ps1')
+$auth = "Bearer $(Get-DemoToken)"
+
 function Get-Available([string]$EventId) {
     (Invoke-RestMethod -TimeoutSec 30 -Uri "$CatalogUrl/events/$EventId/availability").available
 }
@@ -26,7 +30,7 @@ function New-PurchaseBody([string]$EventId, [int]$Seats, [string]$Holder) {
 function Post-Purchase([string]$Key, [string]$Body) {
     try {
         $r = Invoke-WebRequest -UseBasicParsing -TimeoutSec 30 -Uri "$OrdersUrl/purchases" -Method Post `
-            -ContentType 'application/json' -Headers @{ 'Idempotency-Key' = $Key } -Body $Body
+            -ContentType 'application/json' -Headers @{ 'Idempotency-Key' = $Key; Authorization = $auth } -Body $Body
         return @{ Status = [int]$r.StatusCode; Json = (ConvertFrom-Json $r.Content) }
     }
     catch {
@@ -40,7 +44,7 @@ function Post-Purchase([string]$Key, [string]$Body) {
 function Wait-Status([string]$PurchaseId, [string]$Expected, [int]$TimeoutSec = 30) {
     $deadline = (Get-Date).AddSeconds($TimeoutSec)
     while ((Get-Date) -lt $deadline) {
-        $p = Invoke-RestMethod -TimeoutSec 30 -Uri "$OrdersUrl/purchases/$PurchaseId"
+        $p = Invoke-RestMethod -TimeoutSec 30 -Uri "$OrdersUrl/purchases/$PurchaseId" -Headers @{ Authorization = $auth }
         if ($p.status -eq $Expected) { return $p }
         if ($p.status -eq 'FAILED') { throw "la compra $PurchaseId termino FAILED: $($p.reason)" }
         Start-Sleep -Milliseconds 250

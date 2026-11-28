@@ -1,4 +1,5 @@
 using System.Text.Json;
+using TicketFlow.Shared.Infrastructure;
 
 namespace TicketFlow.Provision;
 
@@ -17,6 +18,12 @@ public sealed record ManifestQueue(string Name, bool Fifo, bool ContentBasedDedu
 
 public sealed record ManifestBucket(string Name);
 
+public sealed record ManifestUserPool(string Name, string ClientName);
+
+public sealed record ManifestParameter(string Name, string Value);
+
+public sealed record ManifestGuardrail(string Name, string BlockedMessage, IReadOnlyList<string> BlockedWords);
+
 /// <summary>
 /// Manifiesto IaC del emulador (D-0019): infra/aws-local.json como fuente de verdad de la LISTA de
 /// recursos (AC6). Clavado contra las constantes de código por tools/TicketFlow.Provision.Tests.
@@ -24,7 +31,10 @@ public sealed record ManifestBucket(string Name);
 public sealed record Manifest(
     IReadOnlyList<ManifestTable> Tables,
     IReadOnlyList<ManifestQueue> Queues,
-    IReadOnlyList<ManifestBucket> Buckets)
+    IReadOnlyList<ManifestBucket> Buckets,
+    ManifestUserPool? UserPool = null,
+    IReadOnlyList<ManifestParameter>? Parameters = null,
+    ManifestGuardrail? Guardrail = null)
 {
     private static readonly JsonSerializerOptions Json =
         new() { PropertyNameCaseInsensitive = true };
@@ -67,6 +77,23 @@ public sealed record Manifest(
             if (dup is not null)
                 throw new InvalidManifestException($"'{kind}' declara '{dup.Key}' más de una vez.");
         }
+
+        // userPool y parameters son opcionales (D-0024); si están, tienen que ser utilizables.
+        if (UserPool is { } pool
+            && (pool.Name != CognitoSetup.UserPoolName || pool.ClientName != CognitoSetup.ClientName))
+            throw new InvalidManifestException(
+                $"'userPool' debe ser {CognitoSetup.UserPoolName} / {CognitoSetup.ClientName} (constantes del código).");
+        foreach (var p in Parameters ?? [])
+            if (p?.Name?.StartsWith(ParameterNames.Root, StringComparison.Ordinal) != true
+                || string.IsNullOrWhiteSpace(p.Value))
+                throw new InvalidManifestException(
+                    $"Parámetro '{p?.Name}'inválido: nombre bajo '{ParameterNames.Root}' y valor no vacío.");
+
+        if (Guardrail is { } g
+            && (string.IsNullOrWhiteSpace(g.Name) || string.IsNullOrWhiteSpace(g.BlockedMessage)
+                || g.BlockedWords is not { Count: > 0 } || g.BlockedWords.Any(string.IsNullOrWhiteSpace)))
+            throw new InvalidManifestException(
+                "'guardrail' inválido: name, blockedMessage y blockedWords (no vacíos) son obligatorios.");
 
         foreach (var table in Tables)
         {

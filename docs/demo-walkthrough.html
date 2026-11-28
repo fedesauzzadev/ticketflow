@@ -48,7 +48,7 @@
 <div class="arch">
   <div class="card">
     <div class="svc">
-      <div class="box"><b>🧑 Tú</b><span>HTTP (los demos)</span></div>
+      <div class="box"><b>🧑 Tú</b><span>login Cognito + HTTP (los demos)</span></div>
       <div class="arrow">→</div>
       <div class="box" style="border-color:var(--acc)"><b>📋 Órdenes</b><span>:5081 · orquesta la saga</span></div>
     </div>
@@ -62,6 +62,8 @@
       <div class="box"><b>🗄️ DynamoDB</b><span>estado (compras, asientos)</span></div>
       <div class="box"><b>📮 SQS FIFO</b><span>mensajes ordenados</span></div>
       <div class="box"><b>🪣 S3</b><span>entradas con QR</span></div>
+      <div class="box"><b>🔐 Cognito</b><span>quién compra</span></div>
+      <div class="box"><b>⚙️ Parameter Store</b><span>configuración</span></div>
       <div class="box" style="border-color:var(--purple)"><b>🧪 Emulador AWS</b><span>todo local, puerto 9297</span></div>
     </div>
   </div>
@@ -142,6 +144,9 @@
   <p><b>DLQ</b> — cola de mensajes "muertos" para inspeccionar qué falló.</p>
   <p><b>Circuit breaker</b> — si una dependencia está caída, falla rápido en vez de colgar 10 s cada request.</p>
   <p><b>Oversell</b> — vender más entradas que asientos; acá es cero, garantizado.</p>
+  <p><b>Cognito</b> — servicio de usuarios: inicia sesión y entrega un token firmado que prueba quién sos.</p>
+  <p><b>Access token (JWT)</b> — credencial temporal que va en cada pedido; vence en 1 hora.</p>
+  <p><b>Parameter Store</b> — configuración guardada en AWS por nombre, fuera del código.</p>
   <p><b>Emulador AWS</b> — un "AWS falso" corriendo en Docker local: mismas APIs, cero costo.</p>
 </div>
 
@@ -155,6 +160,6 @@ powershell -File scripts\ci.ps1             <span class="m"># bonus: el gate com
   <p class="why">Requisitos: Docker Desktop con el contenedor <span class="mono">aws-emulator</span> arriba y PowerShell 5.1 (el que ya tenés en Windows).</p>
 </div>
 
-<p class="sub" style="margin-top:26px">TicketFlow v0.3.0 · fábrica NSDD · 186/186 tests · evidencia completa en brain/evidence/ · esta página: docs/demo-walkthrough.html</p>
+<p class="sub" style="margin-top:26px">TicketFlow v0.3.0 · fábrica NSDD · 227/227 tests (la corrida mostrada es anterior al login con Cognito y al asistente con Bedrock) · evidencia completa en brain/evidence/ · esta página: docs/demo-walkthrough.html</p>
 </body>
 </html>

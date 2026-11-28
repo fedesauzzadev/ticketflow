@@ -14,7 +14,7 @@ language: es
 # --- Project commands (fill via init-brain or by hand) ----------------------
 commands:
   # Fijados por el Tech Lead (Fase 2, D-0001/D-0008). run-local.ps1 se crea en S01.
-  test:  ["dotnet", "test", "TicketFlow.sln", "--nologo"]
+  test:  ["dotnet", "test", "TicketFlow.sln", "--nologo", "-m:1"]
   lint:  ["dotnet", "format", "TicketFlow.sln", "--verify-no-changes", "--no-restore"]
   build: ["dotnet", "build", "TicketFlow.sln"]
   run:   ["powershell", "-File", "./scripts/run-local.ps1"]  # L-003: pwsh no instalado, PS 5.1 sí

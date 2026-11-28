@@ -5,8 +5,24 @@ versionado [SemVer](https://semver.org/lang/es/).
 
 ## [Unreleased]
 
+### Cambiado (rompe compatibilidad)
+
+- `POST /purchases`, `GET /purchases/{id}` y `POST /purchases/{id}/payment` exigen un access
+  token de Cognito (401 sin él). Una compra de otro usuario responde 404. Las compras creadas
+  antes de este cambio no tienen dueño y dejan de ser consultables.
+
 ### Agregado
 
+- **Asistente de eventos con Bedrock** (N-4008): `POST /events/{id}/ask` en Catálogo usa la API
+  Converse contra el emulador (que no ejecuta modelos: la respuesta es un texto fijo). Sin
+  autenticación ni límite de peticiones.
+- **Guardrail de Bedrock** (N-4009 a N-4011): `provision.ps1` y `infra/terraform/bedrock.tf` lo
+  crean desde el manifiesto y publican su id en `/ticketflow/catalog/guardrail-id`; el Catálogo lo
+  lee al arrancar (`BEDROCK_GUARDRAIL_ID` tiene prioridad). Un id inexistente responde 503.
+  La suite se corre con `dotnet test -m:1`.
+- **Cognito y Parameter Store** (N-4007, D-0024): user pool y app client, parámetros bajo
+  `/ticketflow/`, validación de JWT en Órdenes, `provision.ps1` y `infra/terraform/auth.tf`,
+  `scripts/auth.ps1` para obtener tokens de demo.
 - **Terraform contra el emulador** (N-4001, D-0022): `infra/terraform/main.tf` crea los 15
   recursos con `for_each` sobre el manifiesto `infra/aws-local.json` (única fuente de
   verdad) + wrapper `scripts/terraform.ps1`. Verificado from scratch: 15 added, plan sin

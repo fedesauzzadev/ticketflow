@@ -15,7 +15,8 @@
 ```mermaid
 flowchart LR
     E[Evaluador<br/>curl / scripts] -->|GET /events| CAT[Catálogo :5080<br/>cache-aside + X-Cache]
-    E -->|POST /purchases<br/>Idempotency-Key| ORD[Órdenes :5081<br/>process manager]
+    E -.->|1. login| COG[Cognito]
+    E -->|POST /purchases<br/>Bearer token + Idempotency-Key| ORD[Órdenes :5081<br/>process manager]
     E -->|GET /purchases/{id}| ORD
     E -->|GET /tickets/{id}| TIC[Ticketing :5083]
 
@@ -29,6 +30,8 @@ flowchart LR
 
     subgraph EMU[Emulador AWS :9297 — HTTPS + SigV4, CA pineada]
       DDB[(DynamoDB)]
+      COG
+      SSM[Parameter Store]
       SQS[SQS FIFO]
       S3[(S3)]
     end
@@ -39,6 +42,8 @@ flowchart LR
     TIC -.-> DDB
     Q1 & Q2 & Q3 & QE -.-> SQS
     TIC -.ticket QR.-> S3
+    ORD -.config al arrancar.-> SSM
+    ORD -.claves públicas.-> COG
 ```
 
 Detalle completo (servicios, tablas, saga paso a paso, ADRs): [docs/architecture.md](docs/architecture.md).
@@ -97,20 +102,20 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts\provision.ps1       
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts\provision.ps1 -Verify  # lista los recursos reales y los compara 1:1 con el manifiesto
 ```
 
-- **From scratch** (emulador recién recreado, cero recursos): `docker rm -f aws-emulator` → `scripts\provision.ps1` (recrea el contenedor y crea los 15 recursos) → `-Verify` coincide 1:1. Aplicar 2 veces más deja el mismo conjunto (exit 0, sin duplicados).
+- **From scratch** (emulador recién recreado, cero recursos): `docker rm -f aws-emulator` → `scripts\provision.ps1` (recrea el contenedor y crea los 15 recursos de datos, el user pool, su cliente y los parámetros) → `-Verify` coincide 1:1. Aplicar 2 veces más deja el mismo conjunto (exit 0, sin duplicados).
 - `-Verify` sale **exit 1** con el diff si falta algún recurso o difiere en su forma (key schema, FIFO/CDB, billing); los recursos **extra** (p. ej. colas `it-*` de corridas de tests) son solo WARNING.
 - Los servicios **conservan su ensure defensivo de arranque** (decisión D-0019): `run-local.ps1` funciona sin provision previo — el manifiesto es la fuente de verdad de la lista, el ensure es resiliencia de runtime.
 - La tool (`tools/TicketFlow.Provision`) reusa la plomería verificada de `Shared.Infrastructure` (CA pineada, SigV4, ensure tolerante a carreras).
 
 ### Lo mismo con Terraform
 
-[`infra/terraform/main.tf`](infra/terraform/main.tf) crea los mismos 15 recursos con el provider oficial `hashicorp/aws` apuntado al emulador. No repite la lista: hace `for_each` sobre `jsondecode(file("../aws-local.json"))`, así que el manifiesto sigue siendo la única fuente de verdad (D-0022).
+[`infra/terraform/main.tf`](infra/terraform/main.tf) crea esos mismos 15 recursos (y, en [`auth.tf`](infra/terraform/auth.tf), Cognito y Parameter Store) con el provider oficial `hashicorp/aws` apuntado al emulador. No repite la lista: hace `for_each` sobre `jsondecode(file("../aws-local.json"))`, así que el manifiesto sigue siendo la única fuente de verdad (D-0022).
 
 ```powershell
 winget install Hashicorp.Terraform                                                              # una vez
-powershell -NoProfile -ExecutionPolicy Bypass -File scripts\terraform.ps1 apply                  # crea los 15 recursos
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\terraform.ps1 apply                  # crea todos los recursos
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts\terraform.ps1 plan -detailed-exitcode # exit 0 = sin drift
-powershell -NoProfile -ExecutionPolicy Bypass -File scripts\provision.ps1 -Verify                # verificador independiente: 15/15 OK
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\provision.ps1 -Verify                # verificador independiente
 ```
 
 Qué mirar en el HCL: `endpoints {}` (cada servicio redirigido al emulador), los `skip_*` (sin ellos el provider consulta STS/IMDS reales al arrancar), `s3_use_path_style` y credenciales/CA por variables de entorno estándar (`AWS_ACCESS_KEY_ID`, `AWS_CA_BUNDLE`), nunca en el repo.
@@ -138,7 +143,83 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts\terraform.ps1 output
 
 Alcance real: el emulador deja cluster y node group en `ACTIVE` y hasta sirve una API de Kubernetes emulada con los nodos registrados, pero en un puerto interno del contenedor y **sin ejecutar contenedores** (un pod de prueba termina en `Failed`). Sirve para aprender y mostrar la parte AWS de EKS (red, IAM, node groups, Terraform); los servicios siguen corriendo como procesos locales.
 
-Límite: Terraform solo maneja lo que está en su estado. Si los servicios ya crearon los recursos con su ensure de arranque, `apply` falla por "ya existe" — usalo sobre un emulador recién recreado, **antes** de `run-local.ps1`. El estado (`terraform.tfstate`) es local y está gitignored.
+Límite: Terraform solo maneja lo que está en su estado. Si los servicios ya crearon los recursos con su ensure de arranque, `apply` falla por "ya existe" — usalo sobre un emulador recién recreado, **antes** de `run-local.ps1`. Con Cognito, además, ese `apply` fallido puede dejar un segundo user pool con el mismo nombre: recreá el emulador (`docker rm -f aws-emulator`) y volvé a aplicar. El estado (`terraform.tfstate`) es local y está gitignored.
+
+## Parameter Store y Cognito (D-0024)
+
+**DynamoDB** ya era la base de datos del proyecto (las 6 tablas de arriba). Se suman dos servicios:
+
+| Servicio | Qué es | Para qué lo usa TicketFlow |
+|---|---|---|
+| **Systems Manager Parameter Store** | Un diccionario `nombre → valor` administrado, con jerarquía de nombres, versiones y permisos | Órdenes lee al arrancar `/ticketflow/auth/user-pool-id`, `/ticketflow/auth/client-id` y `/ticketflow/orders/hold-ttl-seconds` |
+| **Cognito (user pools)** | Un servicio de usuarios: registra, guarda contraseñas, inicia sesión y entrega tokens firmados (JWT) | Comprar, consultar y pagar una compra exige un *access token*; cada usuario ve solo lo suyo |
+
+```
+1. cliente ──usuario+contraseña──▶ Cognito ──access token (JWT, 1 h)──▶ cliente
+2. cliente ──Authorization: Bearer <token>──▶ Órdenes
+3. Órdenes verifica la firma con las claves PÚBLICAS del pool (JWKS); no le pregunta nada por cada pedido
+```
+
+| Pedido a Órdenes | Respuesta |
+|---|---|
+| Sin token, token alterado, vencido, o un *ID token* | `401` |
+| Token válido, compra de otro usuario | `404` (igual que si no existiera) |
+| La misma `Idempotency-Key` usada por dos usuarios | Dos compras distintas |
+
+Catálogo (`GET /events`), Pagos, Ticketing y `/admin/*` **siguen sin autenticación** (ver límites).
+
+**Probarlo a mano**, con los servicios arriba, en una ventana de PowerShell en la raíz del repo:
+
+```powershell
+Set-ExecutionPolicy -Scope Process Bypass                    # permite dot-sourcear scripts en esta ventana
+. .\scripts\auth.ps1                                          # define Get-DemoToken y carga las credenciales del emulador
+$env:AWS_ACCESS_KEY_ID = $env:AWS_EMULATOR_ACCESS_KEY_ID; $env:AWS_SECRET_ACCESS_KEY = $env:AWS_EMULATOR_SECRET_ACCESS_KEY; $env:AWS_CA_BUNDLE = $env:AWS_EMULATOR_CA_PATH; $env:AWS_PAGER = ''  # sin paginador
+$aws = '--endpoint-url', $env:AWS_EMULATOR_ENDPOINT, '--region', 'us-east-1'
+
+aws @aws ssm get-parameters-by-path --path /ticketflow --recursive --query "Parameters[].[Name,Value]" --output table
+aws @aws cognito-idp list-user-pools --max-results 10
+$auth = @{ Authorization = "Bearer $(Get-DemoToken 'ana')" }  # crea a ana si falta e inicia sesión
+
+# Cambiar un parámetro: Órdenes lo lee al ARRANCAR, así que hay que reiniciar los servicios.
+aws @aws ssm put-parameter --name /ticketflow/orders/hold-ttl-seconds --value 30 --type String --overwrite
+```
+
+`Get-DemoToken` usa `TicketFlow.Provision --token`: crea el usuario con una contraseña aleatoria que no se guarda y llama a `InitiateAuth`, como haría un cliente real. Es solo para el emulador (usa APIs de administrador). La variable `HOLD_TTL_SECONDS`, si está definida, gana sobre el parámetro.
+
+Código para leer, en orden: [`auth.tf`](infra/terraform/auth.tf) → [`CognitoSetup.cs`](src/Shared/TicketFlow.Shared.Infrastructure/CognitoSetup.cs) → [`ParameterStore.cs`](src/Shared/TicketFlow.Shared.Infrastructure/ParameterStore.cs) → [`CognitoJwtAuth.cs`](src/Services/Orders/TicketFlow.Orders.Api/CognitoJwtAuth.cs) → [`AuthApiTests.cs`](tests/TicketFlow.Orders.Tests/AuthApiTests.cs).
+
+## Bedrock: preguntar sobre un evento (N-4008)
+
+`POST /events/{id}/ask` (Catálogo) llama a la API **Converse** de Bedrock con los datos del evento en el
+system prompt y tu pregunta como mensaje. **El emulador no ejecuta modelos**: `answer` es un texto fijo;
+lo real es el contrato (inference profile, tokens, `stop_reason`, errores).
+
+```powershell
+Invoke-RestMethod -Method Post http://localhost:5080/events/evt-mj-tribute-night/ask -ContentType 'application/json' -Body '{"question":"Cuanto cuesta?"}'
+```
+
+- Modelo: env `BEDROCK_MODEL_ID` (default `us.amazon.nova-micro-v1:0`). Sin el prefijo `us.` falla con `ValidationException` y la API devuelve 503.
+- Pregunta de 1 a 500 caracteres; sin auth ni rate limit (agregarlos antes de usar Bedrock real, que cobra).
+
+Código: [`EventAssistant.cs`](src/Services/Catalog/TicketFlow.Catalog.Api/EventAssistant.cs) → [`EventAssistantTests.cs`](tests/TicketFlow.Catalog.Tests/EventAssistantTests.cs).
+
+### Guardrail (N-4009 a N-4011)
+
+`provision.ps1` (o `terraform.ps1 apply`) crea el guardrail `ticketflow-assistant` (palabra bloqueada:
+"reventa") y publica su id en `/ticketflow/catalog/guardrail-id`. El Catálogo lo lee al arrancar:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\provision.ps1
+```
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\run-local.ps1
+```
+
+- Al preguntar por "reventa": 200 con `stop_reason: guardrail_intervened` y el mensaje bloqueado.
+- Prioridad: env `BEDROCK_GUARDRAIL_ID` > parámetro > sin filtro. Versión: `BEDROCK_GUARDRAIL_VERSION` (default `DRAFT`).
+- Si el id no existe, 503: nunca responde sin filtrar.
+- Provision no actualiza un guardrail existente: si cambiás el manifiesto, borralo y volvé a correrlo.
 
 ## CI local: todo el gate en un comando (H-08)
 
@@ -161,7 +242,7 @@ etapa `tests` y los cierra al terminar — solo lo que él levantó).
 `.github/workflows/ci.yml` corre el gate **completo** en `ubuntu-latest` en cada push a
 `master`: invoca **el mismo `scripts/ci.ps1`** que corre el dueño localmente (cero
 deriva). El `preflight` buildea el emulador AWS con el Docker del propio job, extrae
-creds/CA de esa corrida, y la suite completa (186 tests + umbral de cobertura ≥70%)
+creds/CA de esa corrida, y la suite completa (227 tests + umbral de cobertura ≥70%)
 corre contra ese emulador — build 0 warnings → tests → infra-verify → workflow-lint,
 primera etapa que falla = culpable. La validación local del YAML es **estructural**
 (`scripts\validate-workflow.ps1`, etapa `workflow-lint`): PS 5.1 no
@@ -170,7 +251,13 @@ tiene parser YAML — se chequean las invariantes (`on:`, `jobs:`, `runs-on:`, c
 
 ## Probar el flujo a mano
 
-Copia y pega en otra ventana de PowerShell. Cada bloque es independiente salvo los ids que generan los anteriores.
+Copia y pega en otra ventana de PowerShell. Cada bloque es independiente salvo los ids que generan los anteriores. Para comprar hace falta un token (ver [Parameter Store y Cognito](#parameter-store-y-cognito-d-0024)); primero, en la raíz del repo:
+
+```powershell
+Set-ExecutionPolicy -Scope Process Bypass
+. .\scripts\auth.ps1
+$auth = @{ Authorization = "Bearer $(Get-DemoToken)" }       # dura 1 hora
+```
 
 **1) Catálogo y cache observable** — dos lecturas seguidas: la primera `MISS`, la segunda `HIT` con el mismo valor:
 
@@ -190,14 +277,14 @@ $key  = 'demo-' + [guid]::NewGuid().ToString('N')
 $body = @{ event_id = 'evt-mj-tribute-night'; seats = 1
            card = @{ pan = '4111111111111111'; holder = 'Evaluador'; expiry = '12/29'; cvv = '123' } } | ConvertTo-Json -Depth 4
 $r = Invoke-WebRequest -UseBasicParsing http://localhost:5081/purchases -Method Post `
-     -ContentType 'application/json' -Headers @{ 'Idempotency-Key' = $key } -Body $body
+     -ContentType 'application/json' -Headers ($auth + @{ 'Idempotency-Key' = $key }) -Body $body
 $r.StatusCode; $r.Content                                 # 201 {"purchase_id":"pur-...","status":"PENDING",...}
-$pid = ($r.Content | ConvertFrom-Json).purchase_id
+$compra = ($r.Content | ConvertFrom-Json).purchase_id
 
-do { $p = Invoke-RestMethod http://localhost:5081/purchases/$pid; Start-Sleep -Milliseconds 300 }
+do { $p = Invoke-RestMethod -Headers $auth http://localhost:5081/purchases/$compra; Start-Sleep -Milliseconds 300 }
 while ($p.status -notin 'TICKETS_ISSUED','FAILED')
 $p                                                        # TICKETS_ISSUED + ticket_ids
-Invoke-RestMethod http://localhost:5082/payments/$pid     # evidencia del pago: APPROVED, amount
+Invoke-RestMethod http://localhost:5082/payments/$compra     # evidencia del pago: APPROVED, amount
 Invoke-RestMethod http://localhost:5083/tickets/$($p.ticket_ids[0])   # entrada + qr_s3_key (S3)
 ```
 
@@ -208,9 +295,9 @@ $body = @{ event_id = 'evt-legacy-tour'; seats = 1
            card = @{ pan = '4000000000000002'; holder = 'Evaluador'; expiry = '12/29'; cvv = '123' } } | ConvertTo-Json -Depth 4
 $antes = (Invoke-RestMethod http://localhost:5080/events/evt-legacy-tour/availability).available
 $r = Invoke-WebRequest -UseBasicParsing http://localhost:5081/purchases -Method Post `
-     -ContentType 'application/json' -Headers @{ 'Idempotency-Key' = 'demo-' + [guid]::NewGuid().ToString('N') } -Body $body
-$pid2 = ($r.Content | ConvertFrom-Json).purchase_id
-do { $p2 = Invoke-RestMethod http://localhost:5081/purchases/$pid2; Start-Sleep -Milliseconds 300 }
+     -ContentType 'application/json' -Headers ($auth + @{ 'Idempotency-Key' = 'demo-' + [guid]::NewGuid().ToString('N') }) -Body $body
+$compra2 = ($r.Content | ConvertFrom-Json).purchase_id
+do { $p2 = Invoke-RestMethod -Headers $auth http://localhost:5081/purchases/$compra2; Start-Sleep -Milliseconds 300 }
 while ($p2.status -notin 'TICKETS_ISSUED','FAILED')
 $p2                                                       # FAILED + reason "pago rechazado por el emisor..."
 (Invoke-RestMethod http://localhost:5080/events/evt-legacy-tour/availability).available -eq $antes   # True (restaurada)
@@ -274,10 +361,10 @@ Sin `"hold": true` el comportamiento es exactamente el de V1 (regresión prohibi
 #    disponibilidad queda decrementada hasta que el hold venga o se pague.
 $key = 'mi-key-' + [Guid]::NewGuid().ToString('N')
 $body = '{"event_id":"evt-mj-tribute-night","seats":1,"hold":true,"card":{"pan":"4111111111111111","holder":"Michael Fan","expiry":"12/29","cvv":"123"}}'
-curl -X POST http://localhost:5081/purchases -H "Idempotency-Key: $key" -H "Content-Type: application/json" -d $body
+curl.exe -X POST http://localhost:5081/purchases -H "Authorization: $($auth.Authorization)" -H "Idempotency-Key: $key" -H "Content-Type: application/json" -d $body
 
 # 2) Completar el pago ANTES del TTL: 202 y la saga sigue hasta TICKETS_ISSUED como en V1.
-curl -X POST http://localhost:5081/purchases/<purchase_id>/payment      # 202 {purchase_id, status, expires_at}
+curl.exe -X POST http://localhost:5081/purchases/<purchase_id>/payment -H "Authorization: $($auth.Authorization)"      # 202 {purchase_id, status, expires_at}
 
 # 3) Si el TTL vence sin pago: un sweeper de Ordenes (cada 5 s) expira la compra a
 #    EXPIRED (terminal, con motivo "reserva expirada sin pago (TTL Ns)") y libera el
@@ -347,7 +434,7 @@ Get-Content .artifacts\logs\orders.log -Wait
 
 ## Verificación
 
-- **Tests:** `dotnet test TicketFlow.sln` → **186/186** (unit + integración contra el emulador real; requiere el emulador arriba y `AWS_EMULATOR_*` en el env — `run-local.ps1` muestra cómo se extraen; el run reporta cobertura de los 4 `Core` y los 4 `.Api`, umbral ≥70% — la tool Provision con umbral propio 86%).
+- **Tests:** `dotnet test TicketFlow.sln -m:1` (en serie: comparten el emulador) → **227/227** (unit + integración contra el emulador real; requiere el emulador arriba y `AWS_EMULATOR_*` en el env — `run-local.ps1` muestra cómo se extraen; el run reporta cobertura de los 4 `Core` y los 4 `.Api`, umbral ≥70% — la tool Provision con umbral propio 86%).
 - **Evidencias por slice** (comando + salida archivada): [S01 catálogo/cache](brain/evidence/2026-11-13-S01-n1001-verification.md) · [S02 saga+compensación](brain/evidence/2026-11-13-S02-n1002-verification.md) · [S03 idempotencia](brain/evidence/2026-11-14-S03-n1003-verification.md) · [S04 quickstart/demos/mediciones (este slice)](brain/evidence/2026-11-14-S04-n1004-verification.md) · [verificación del emulador](brain/evidence/2026-11-13-emulator-verification.md).
 
 ### Performance medida (NFR-5, local, 50 iteraciones tras warmup)
@@ -362,6 +449,9 @@ Números crudos y método: [evidencia S04](brain/evidence/2026-11-14-S04-n1004-v
 
 ## Limitaciones conocidas (fidelidad del emulador)
 
+- **Autenticación solo en Órdenes** (D-0024): `GET /payments/{id}`, `GET /tickets/{id}`, `/admin/*` y los endpoints de Catálogo siguen abiertos para quien alcance el puerto. Los servicios escuchan en `localhost` salvo en contenedores.
+- **Sin pantalla de registro ni MFA**: los usuarios de demo los crea la herramienta con APIs de administrador.
+- **Parámetros leídos al arranque**: cambiar uno requiere reiniciar Órdenes.
 - **El estado del emulador vive en memoria del contenedor**: reiniciar los microservicios NO pierde datos; reiniciar el **contenedor** sí (todo se re-seedea al arrancar). No reinicies el contenedor en medio de una demo.
 - **SNS sin entrega** (control plane OK, data plane no): la notificación del ticket es un **evento interno + log visible** en Ticketing (gap verificado: [evidencia](brain/evidence/2026-11-13-emulator-verification.md)); SNS queda para V1.
 - **Sin Redis real** (el emulador no expone protocolo Redis): la cache es **in-app** (`HybridCache`) con TTL 30 s + invalidación explícita — el header `X-Cache: HIT|MISS` es observable igual que en producción.

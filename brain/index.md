@@ -30,6 +30,12 @@ TicketFlow: portfolio backend de venta de entradas para eventos de alta demanda 
 | N-4004 | Los 4 servicios en contenedores: Dockerfile único + compose (perfil services) + allowlist de host | feature | M | verified | slice v3 · → D-0023 · evidencia 2026-11-21-S15 (203/203) |
 | N-4005 | Los 4 servicios en Kubernetes local (kind): Deployments + Services + Secret/ConfigMap | feature | M | verified | depends_on N-4004 · slice v3 · evidencia 2026-11-21-S16 |
 | N-4006 | Caso de estudio para portfolio (docs/portfolio.html, corrida real) + fix carrera de CA en emulator-env | feature | S | verified (smoke) | depends_on N-4005 · slice v3 · evidencia docs/portfolio-run.txt |
+| N-4007 | Parameter Store + Cognito: configuración externa y compra autenticada en Órdenes | feature | L | verified | depends_on N-4006 · slice v3 · → D-0024 · evidencia 2026-11-25-S17 (213; run-k8s sin verificar) |
+| N-4008 | Bedrock (emulador): preguntar sobre un evento con Converse | feature | M | verified | depends_on N-4007 · slice v3 · evidencia 2026-11-26-S18 (221) |
+| N-4009 | Bedrock: guardrail opcional en el asistente de eventos | feature | S | verified | depends_on N-4008 · evidencia 2026-11-26-S19 (222) |
+| N-4010 | Bedrock: Provision crea el guardrail y publica su id | feature | S | verified | depends_on N-4009 · evidencia 2026-11-27-S20 (227) |
+| N-4011 | Bedrock: guardrail desde Parameter Store y Terraform | feature | S | verified | depends_on N-4010 · evidencia 2026-11-27-S21 (227) |
+| N-4012 | Docs: Bedrock en portfolio, CHANGELOG y arquitectura | feature | S | verified (smoke) | depends_on N-4011 |
 
 ## Decisions
 | ID | Título | Reversibility |
@@ -57,6 +63,7 @@ TicketFlow: portfolio backend de venta de entradas para eventos de alta demanda 
 | D-0021 | G4 aprobado: V2 entregada + v0.3.0 + cierre de corrida | easy |
 | D-0022 | Terraform contra el emulador leyendo el manifiesto (enmienda rechazo de D-0019) | easy |
 | D-0023 | Gate NFR-7 con allowlist opt-in de UN host (AWS_EMULATOR_ALLOWED_HOST) + SERVICE_HOST + S3 path-style | easy |
+| D-0024 | JWT de Cognito en las rutas de compra + Parameter Store (env > parámetro > default) | easy |
 
 ## Evidence
 - 2026-11-21-S16-n4005-verification.md — S16/N-4005 (kind): run-k8s exit 0 x2, compra aprobada/rechazada + Lambda por NodePort, DNS de Service, pod borrado recreado. Hallazgo: restart simultáneo satura el emulador (timeout de arranque → 1 reinicio de 2 pods, se recuperan solos).

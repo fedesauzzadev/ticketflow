@@ -13,6 +13,10 @@
 param([string]$EventId = 'evt-mj-tribute-night')
 
 $ErrorActionPreference = 'Stop'
+
+# Comprar exige un access token de Cognito (D-0024).
+. (Join-Path $PSScriptRoot 'auth.ps1')
+$auth = "Bearer $(Get-DemoToken)"
 $root = Split-Path -Parent $PSScriptRoot
 $logsDir = Join-Path $root '.artifacts\logs'
 $report = @()
@@ -30,7 +34,7 @@ function Check($name, $ok, $detail) {
     }
 }
 function Http($method, $url, $body = $null, $headers = @{}) {
-    $args = @('-s', '-m', '30', '-X', $method, '-w', "`n%{http_code}")
+    $args = @('-s', '-m', '30', '-X', $method, '-w', "`n%{http_code}", '-H', "Authorization: $auth")
     foreach ($k in $headers.Keys) { $args += @('-H', "${k}: $($headers[$k])") }
     $tmp = $null
     if ($body -ne $null) {

@@ -148,21 +148,21 @@ footer{border-top:1px solid var(--line);padding:30px 0 60px;color:var(--mut);fon
 <div class="hero" id="resumen">
   <div class="eyebrow">Caso de estudio · backend distribuido sobre AWS</div>
   <h1>Vender entradas sin vender dos veces el mismo asiento.</h1>
-  <p class="lead">TicketFlow es un backend de venta de entradas para eventos de alta demanda: <strong>4 microservicios .NET 10</strong> coordinados por una saga, sobre <strong>DynamoDB, SQS FIFO, S3, Lambda y EKS</strong>, con la infraestructura en <strong>Terraform</strong> y los servicios en <strong>Docker y Kubernetes</strong>. Corre completo en una laptop contra el emulador local de AWS, sin cuenta ni costo.</p>
+  <p class="lead">TicketFlow es un backend de venta de entradas para eventos de alta demanda: <strong>4 microservicios .NET 10</strong> coordinados por una saga, sobre <strong>DynamoDB, SQS FIFO, S3, Lambda, Cognito, Parameter Store, Bedrock y EKS</strong>, con la infraestructura en <strong>Terraform</strong> y los servicios en <strong>Docker y Kubernetes</strong>. Corre completo en una laptop contra el emulador local de AWS, sin cuenta ni costo.</p>
   <div class="cta">
     <a class="btn primary" href="#demo">Ver la demo paso a paso</a>
     <a class="btn" href="https://github.com/fedesauzzadev/ticketflow">Código en GitHub</a>
     <a class="btn" href="https://github.com/fedesauzzadev/ticketflow/actions">CI</a>
   </div>
   <div class="stats" role="list">
-    <div class="stat" role="listitem"><b>203</b><span>tests automáticos, todos en verde</span></div>
-    <div class="stat" role="listitem"><b>32</b><span>recursos AWS en Terraform</span></div>
+    <div class="stat" role="listitem"><b>227</b><span>tests automáticos, todos en verde</span></div>
+    <div class="stat" role="listitem"><b>39</b><span>recursos AWS en Terraform</span></div>
     <div class="stat" role="listitem"><b>~760 ms</b><span>saga completa, 4 servicios</span></div>
     <div class="stat" role="listitem"><b>0</b><span>asientos sobrevendidos bajo estrés</span></div>
     <div class="stat" role="listitem"><b>3</b><span>formas de correrlo: procesos, Docker, Kubernetes</span></div>
   </div>
   <ul class="chips" aria-label="Tecnologías">
-    <li>.NET 10</li><li>AWS SDK v4</li><li>DynamoDB</li><li>SQS FIFO + DLQ</li><li>S3</li><li>Lambda (Python 3.12)</li><li>IAM</li><li>CloudWatch Logs</li><li>EKS</li><li>Terraform</li><li>Docker</li><li>Kubernetes (kind)</li><li>GitHub Actions</li><li>xUnit</li>
+    <li>.NET 10</li><li>AWS SDK v4</li><li>DynamoDB</li><li>SQS FIFO + DLQ</li><li>S3</li><li>Lambda (Python 3.12)</li><li>IAM</li><li>Cognito</li><li>Parameter Store</li><li>Bedrock (Converse + Guardrails)</li><li>CloudWatch Logs</li><li>EKS</li><li>Terraform</li><li>Docker</li><li>Kubernetes (kind)</li><li>GitHub Actions</li><li>xUnit</li>
   </ul>
 </div>
 
@@ -172,8 +172,10 @@ footer{border-top:1px solid var(--line);padding:30px 0 60px;color:var(--mut);fon
   <div class="grid">
     <div class="card"><span class="tag">Sistemas distribuidos</span><h3>Saga con compensación</h3><p>Reserva, pago y emisión coordinados por un orquestador. Si el pago falla, el asiento se libera solo y la compra termina en un estado explicable.</p><span class="where">Dónde verlo: demo, pasos 3 y 6 · <code>SagaProcessManager.cs</code></span></div>
     <div class="card"><span class="tag">Consistencia</span><h3>Cero sobreventa e idempotencia</h3><p>Decremento atómico condicional en DynamoDB. La misma <code>Idempotency-Key</code> devuelve la misma compra, sin efectos nuevos.</p><span class="where">Dónde verlo: <code>scripts/stress-test.ps1</code> · <code>scripts/demo-idempotency.ps1</code></span></div>
-    <div class="card"><span class="tag">Infraestructura como código</span><h3>Terraform con una sola fuente de verdad</h3><p>32 recursos. Tablas, colas y bucket salen de un manifiesto JSON que también consume una herramienta .NET y que un test protege contra la deriva.</p><span class="where">Dónde verlo: demo, paso 1 · <code>infra/terraform/</code></span></div>
+    <div class="card"><span class="tag">Infraestructura como código</span><h3>Terraform con una sola fuente de verdad</h3><p>39 recursos. Tablas, colas, bucket, user pool, guardrail y parámetros salen de un manifiesto JSON que también consume una herramienta .NET y que un test protege contra la deriva.</p><span class="where">Dónde verlo: demo, paso 1 · <code>infra/terraform/</code></span></div>
     <div class="card"><span class="tag">Serverless</span><h3>Lambda disparada por eventos</h3><p>Guardar el QR en S3 dispara una función que notifica. Ningún servicio la invoca. Rol IAM de mínimo privilegio.</p><span class="where">Dónde verlo: demo, paso 5 · <code>infra/terraform/lambda.tf</code></span></div>
+    <div class="card"><span class="tag">Identidad</span><h3>Login con Cognito y configuración centralizada</h3><p>Órdenes valida el access token, cada usuario ve solo sus compras y la configuración se lee de Parameter Store.</p><span class="where">Dónde verlo: <code>CognitoJwtAuth.cs</code> · <code>infra/terraform/auth.tf</code></span></div>
+    <div class="card"><span class="tag">IA generativa</span><h3>Asistente de eventos con guardrail</h3><p>El Catálogo responde preguntas sobre un evento con la API Converse de Bedrock. Un guardrail creado como infraestructura bloquea temas; si no existe, la API responde 503 en lugar de contestar sin filtro. El emulador no ejecuta modelos: se probó la integración, no la calidad de las respuestas.</p><span class="where">Dónde verlo: <code>EventAssistant.cs</code> · <code>infra/terraform/bedrock.tf</code></span></div>
     <div class="card"><span class="tag">Contenedores</span><h3>Docker y Kubernetes</h3><p>Un Dockerfile multi-stage para los 4 servicios. Deployments con probes y límites, Services con DNS, secretos fuera del repositorio.</p><span class="where">Dónde verlo: demo, pasos 2 y 7 · <code>infra/k8s/</code></span></div>
     <div class="card"><span class="tag">Resiliencia</span><h3>Fallos inyectables y observables</h3><p>Reintentos con backoff, colas de mensajes muertos, circuit breaker y reservas con vencimiento. Todo se puede provocar a mano y mirar.</p><span class="where">Dónde verlo: <code>scripts/demo-resilience.ps1</code> · <code>scripts/demo-ttl.ps1</code></span></div>
     <div class="card"><span class="tag">Observabilidad</span><h3>Traza distribuida por compra</h3><p>Un mismo identificador recorre los 4 servicios. La historia completa de una compra se reconstruye filtrando los logs.</p><span class="where">Dónde verlo: demo, paso 4</span></div>
@@ -186,14 +188,14 @@ footer{border-top:1px solid var(--line);padding:30px 0 60px;color:var(--mut);fon
   <h2 id="h-arq">Arquitectura</h2>
   <p class="intro">Los servicios no se llaman entre sí para avanzar una compra: se pasan comandos y eventos por colas SQS FIFO. Órdenes es el orquestador y el único que conoce el estado de la saga.</p>
   <div class="diagram">
-    <svg viewBox="0 0 960 520" role="img" aria-labelledby="d-title d-desc">
+    <svg viewBox="0 0 960 590" role="img" aria-labelledby="d-title d-desc">
       <title id="d-title">Diagrama de arquitectura de TicketFlow</title>
-      <desc id="d-desc">Un cliente llama a Órdenes y Catálogo. Los cuatro servicios usan colas SQS FIFO, tablas DynamoDB y un bucket S3 dentro del emulador de AWS. El bucket dispara una función Lambda que escribe en CloudWatch Logs. Terraform declara todos los recursos, incluido un cluster EKS.</desc>
+      <desc id="d-desc">Un cliente llama a Órdenes y Catálogo. Los cuatro servicios usan colas SQS FIFO, tablas DynamoDB y un bucket S3 dentro del emulador de AWS. Catálogo además consulta Bedrock. El bucket dispara una función Lambda que escribe en CloudWatch Logs. Terraform declara todos los recursos, incluido un cluster EKS.</desc>
       <defs><marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="var(--mut)"/></marker></defs>
 
-      <rect class="d-zone" x="170" y="28" width="212" height="464" rx="14"/>
+      <rect class="d-zone" x="170" y="28" width="212" height="544" rx="14"/>
       <text class="d-z" x="184" y="48">Servicios · 3 modos</text>
-      <rect class="d-zone" x="418" y="28" width="528" height="464" rx="14"/>
+      <rect class="d-zone" x="418" y="28" width="528" height="544" rx="14"/>
       <text class="d-z" x="432" y="48">Emulador AWS local · HTTPS + SigV4 + CA propia</text>
 
       <rect class="d-box" x="14" y="218" width="116" height="74" rx="10"/>
@@ -249,6 +251,11 @@ footer{border-top:1px solid var(--line);padding:30px 0 60px;color:var(--mut);fon
       <text class="d-s" x="871" y="440" text-anchor="middle">Logs</text>
       <text class="d-s" x="629" y="380" text-anchor="middle">evento</text>
 
+      <path class="d-line" d="M190 232H180V523H436" marker-end="url(#arr)"/>
+      <rect class="d-aws" x="438" y="486" width="494" height="74" rx="10"/>
+      <text class="d-t" x="685" y="516" text-anchor="middle">Bedrock</text>
+      <text class="d-s" x="685" y="540" text-anchor="middle">Converse + guardrail · solo lo usa Catálogo</text>
+
       <rect class="d-aws" x="652" y="64" width="280" height="112" rx="10"/>
       <text class="d-t" x="792" y="98" text-anchor="middle">EKS · control plane</text>
       <text class="d-s" x="792" y="122" text-anchor="middle">VPC · 2 subnets · 2 roles IAM</text>
@@ -256,18 +263,18 @@ footer{border-top:1px solid var(--line);padding:30px 0 60px;color:var(--mut);fon
 
       <rect class="d-box" x="652" y="206" width="280" height="146" rx="10"/>
       <text class="d-t" x="792" y="240" text-anchor="middle">Terraform</text>
-      <text class="d-s" x="792" y="264" text-anchor="middle">declara los 32 recursos de esta zona</text>
+      <text class="d-s" x="792" y="264" text-anchor="middle">declara los 39 recursos del emulador</text>
       <text class="d-s" x="792" y="282" text-anchor="middle">tablas, colas y bucket: for_each sobre</text>
       <text class="d-s" x="792" y="300" text-anchor="middle">un manifiesto JSON compartido</text>
       <text class="d-s" x="792" y="318" text-anchor="middle">con la herramienta de verificación .NET</text>
     </svg>
   </div>
-  <p class="caption">Los cuatro servicios usan SQS y DynamoDB; solo Ticketing escribe en S3. Los servicios corren como procesos locales, como contenedores Docker o como pods en un cluster Kubernetes local, siempre en los mismos puertos. El cluster EKS del emulador es solo control plane: está declarado y activo, pero no ejecuta contenedores.</p>
+  <p class="caption">Los cuatro servicios usan SQS y DynamoDB; solo Ticketing escribe en S3 y solo Catálogo llama a Bedrock. Los servicios corren como procesos locales, como contenedores Docker o como pods en un cluster Kubernetes local, siempre en los mismos puertos. El cluster EKS del emulador es solo control plane: está declarado y activo, pero no ejecuta contenedores.</p>
 </section>
 
 <section id="demo" aria-labelledby="h-demo">
   <h2 id="h-demo">Demo guiada: una corrida real</h2>
-  <p class="intro">Todo lo que sigue es salida real, sin editar más que para acortar líneas largas, de una corrida del 22 de noviembre de 2026 partiendo de un emulador recién reiniciado (vacío). El registro completo está en <a href="portfolio-run.txt"><code>docs/portfolio-run.txt</code></a>.</p>
+  <p class="intro">Todo lo que sigue es salida real, sin editar más que para acortar líneas largas, de una corrida del 22 de noviembre de 2026 partiendo de un emulador recién reiniciado (vacío). Es anterior a Cognito, Parameter Store y Bedrock: hoy las compras llevan además un token y Terraform declara 39 recursos. El registro completo está en <a href="portfolio-run.txt"><code>docs/portfolio-run.txt</code></a>.</p>
 
   <ol class="steps">
     <li class="step">
@@ -435,6 +442,7 @@ ticketing-75f4dc88c5-<span class="a">k2gfl</span>   1/1   Running   0   6s    <s
         <tr><td><strong>Reintentos con backoff</strong></td><td>Fallo transitorio inyectado en un paso</td><td>Reintentos a los 510 ms y 1014 ms; la compra termina bien</td></tr>
         <tr><td><strong>Circuit breaker</strong></td><td>Emulador pausado con <code>docker pause</code></td><td>Falla en 35 ms en lugar de esperar 10 s; se recupera solo</td></tr>
         <tr><td><strong>Reserva con vencimiento</strong></td><td>Compra en espera sin pagar</td><td>Expira, libera el asiento, y el pago tardío recibe <code>409</code></td></tr>
+        <tr><td><strong>Guardrail</strong></td><td>Preguntas al asistente, con y sin una palabra bloqueada</td><td>Con ella, <code>guardrail_intervened</code> y mensaje fijo; sin ella, <code>end_turn</code></td></tr>
         <tr><td><strong>Latencia</strong></td><td>50 iteraciones tras calentamiento</td><td>p95: lectura cacheada 1,4 ms · alta de compra 20,7 ms · saga completa 790 ms</td></tr>
       </tbody>
     </table>
@@ -501,6 +509,7 @@ ticketing-75f4dc88c5-<span class="a">k2gfl</span>   1/1   Running   0   6s    <s
     <div class="card"><span class="tag bad">SDK</span><h3>El cliente hablaba con AWS real en silencio</h3><p><strong>Síntoma:</strong> errores TLS inexplicables contra el emulador.</p><p><strong>Causa:</strong> en el SDK v4, configurar región y URL a la vez hace que gane la región, y el tráfico sale al endpoint real.</p><p><strong>Corrección:</strong> URL más región de autenticación, y certificado pineado para que no pueda repetirse.</p></div>
     <div class="card"><span class="tag bad">S3</span><h3>Ticketing no arrancaba en contenedores</h3><p><strong>Síntoma:</strong> <code>Name or service not known (ticketflow-tickets.host…)</code>.</p><p><strong>Causa:</strong> con el endpoint por IP el SDK usaba rutas tipo <code>host/bucket</code>; con un nombre de host pasa a <code>bucket.host</code>, que no existe.</p><p><strong>Corrección:</strong> forzar el estilo de ruta en el cliente S3 y volver a correr la suite completa.</p></div>
     <div class="card"><span class="tag bad">Mensajería</span><h3>Una compra quedaba colgada para siempre</h3><p><strong>Síntoma:</strong> con dos fallos encadenados la compra nunca llegaba a un estado final.</p><p><strong>Causa:</strong> dos mensajes de fallo distintos compartían identificador de deduplicación y SQS FIFO descartaba el segundo sin avisar.</p><p><strong>Corrección:</strong> el paso fallado entra en el identificador. Tres tests que fallan sin el arreglo.</p></div>
+    <div class="card"><span class="tag bad">Bedrock</span><h3>Unas respuestas colgadas frenaban el servicio</h3><p><strong>Síntoma:</strong> con 20 a 40 respuestas que no terminaban de llegar, el servicio se quedaba sin hilos.</p><p><strong>Causa:</strong> el SDK lee el cuerpo de la respuesta de forma síncrona y su timeout no cubre esa lectura.</p><p><strong>Corrección:</strong> el cuerpo se descarga de forma asíncrona y cancelable antes de entregarlo al SDK. Con test.</p></div>
     <div class="card"><span class="tag bad">Lambda</span><h3>Una clave nula tiraba la función</h3><p><strong>Síntoma:</strong> excepción en el test de entradas hostiles, antes de desplegar.</p><p><strong>Causa:</strong> un evento con la clave del objeto en <code>null</code> llegaba hasta el decodificador de URL.</p><p><strong>Corrección:</strong> el evento malformado se ignora y se registra. Terraform redesplegó solo esa función.</p></div>
     <div class="card"><span class="tag bad">IAM</span><h3>El disparador desde SQS era rechazado</h3><p><strong>Síntoma:</strong> error al asociar una cola a la Lambda.</p><p><strong>Causa:</strong> el rol de ejecución no tenía permiso para leer de la cola. El emulador valida IAM igual que AWS.</p><p><strong>Corrección:</strong> con la policy correcta funcionó, también con colas FIFO. Quedó documentado como material de estudio.</p></div>
     <div class="card"><span class="tag bad">Scripts</span><h3>El arranque fallaba tras reiniciar Docker</h3><p><strong>Síntoma:</strong> el chequeo de salud del emulador fallaba por certificado.</p><p><strong>Causa:</strong> una carrera: el script copiaba el certificado viejo antes de que el emulador generara el nuevo.</p><p><strong>Corrección:</strong> volver a copiarlo mientras el chequeo falle. Reproducido reiniciando el contenedor a propósito.</p></div>
@@ -515,12 +524,12 @@ ticketing-75f4dc88c5-<span class="a">k2gfl</span>   1/1   Running   0   6s    <s
       <table>
         <thead><tr><th scope="col">Suite</th><th scope="col">Tests</th><th scope="col">Líneas</th><th scope="col">Ramas</th></tr></thead>
         <tbody>
-          <tr><td>Catálogo + infraestructura compartida</td><td class="num">81</td><td class="num">81,0 %</td><td class="num">74,3 %</td></tr>
-          <tr><td>Órdenes (saga, idempotencia, reservas)</td><td class="num">92</td><td class="num">89,3 %</td><td class="num">78,6 %</td></tr>
+          <tr><td>Catálogo + infraestructura compartida</td><td class="num">90</td><td class="num">84,4 %</td><td class="num">77,1 %</td></tr>
+          <tr><td>Órdenes (saga, idempotencia, reservas)</td><td class="num">97</td><td class="num">90,0 %</td><td class="num">79,2 %</td></tr>
           <tr><td>Pagos</td><td class="num">8</td><td class="num">94,8 %</td><td class="num">84,0 %</td></tr>
           <tr><td>Ticketing</td><td class="num">5</td><td class="num">88,7 %</td><td class="num">76,2 %</td></tr>
-          <tr><td>Aprovisionamiento</td><td class="num">17</td><td class="num">86,5 %</td><td class="num">76,7 %</td></tr>
-          <tr><td><strong>Total</strong></td><td class="num"><strong>203</strong></td><td></td><td></td></tr>
+          <tr><td>Aprovisionamiento</td><td class="num">27</td><td class="num">89,1 %</td><td class="num">80,2 %</td></tr>
+          <tr><td><strong>Total</strong></td><td class="num"><strong>227</strong></td><td></td><td></td></tr>
         </tbody>
       </table>
     </div>
@@ -546,6 +555,7 @@ ticketing-75f4dc88c5-<span class="a">k2gfl</span>   1/1   Running   0   6s    <s
       <ul class="plain">
         <li><strong>EKS no ejecuta pods.</strong> Es plano de control; los servicios corren en un cluster local.</li>
         <li><strong>SNS no entrega mensajes.</strong> El fan-out a colas falla; la notificación se resolvió con S3 y Lambda.</li>
+        <li><strong>Bedrock no ejecuta modelos.</strong> Devuelve un texto fijo.</li>
         <li><strong>El estado vive en memoria.</strong> Reiniciar el contenedor borra todo; Terraform lo recrea.</li>
         <li><strong>Se satura con arranques simultáneos.</strong> Reiniciar los 4 servicios a la vez puede hacer que alguno falle su primer intento; Kubernetes lo relanza.</li>
       </ul>
@@ -556,7 +566,7 @@ ticketing-75f4dc88c5-<span class="a">k2gfl</span>   1/1   Running   0   6s    <s
         <li><strong>Una réplica por servicio.</strong> Escalar horizontalmente los consumidores de la saga no está verificado.</li>
         <li><strong>El CI no ejecuta Terraform, Docker ni Kubernetes.</strong> Esas partes están verificadas en local, con evidencia guardada.</li>
         <li><strong>El mínimo privilegio de la Lambda se revisó leyendo la configuración.</strong> No se probó que una invocación sin permiso sea rechazada.</li>
-        <li><strong>Sin autenticación de usuarios ni pasarela de pago real.</strong> Están fuera del alcance.</li>
+        <li><strong>Autenticación solo en Órdenes.</strong> Pagos, Ticketing, el asistente de eventos y los endpoints de administración siguen abiertos; el asistente tampoco limita peticiones. No hay pasarela de pago real.</li>
       </ul>
     </div>
   </div>

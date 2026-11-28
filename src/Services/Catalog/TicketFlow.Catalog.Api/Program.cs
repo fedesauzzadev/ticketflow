@@ -1,4 +1,6 @@
 using System.Text.Json;
+using Amazon.BedrockRuntime;
+using Amazon.BedrockRuntime.Model;
 using Amazon.DynamoDBv2;
 using Amazon.SQS;
 using TicketFlow.Catalog.Api;
@@ -24,6 +26,27 @@ builder.Services.AddSingleton<IAmazonSQS>(
     sp => EmulatorAwsClients.CreateSqs(awsOptions, sp.GetRequiredService<ILoggerFactory>()));
 builder.Services.AddSingleton<TicketFlow.Shared.Infrastructure.Saga.SqsSagaTransport>();
 builder.Services.AddSingleton<TicketFlow.Shared.Infrastructure.FailureInjector>(); // D-0012: /admin/failure
+
+// Asistente de eventos (N-4008): Bedrock Converse contra el emulador.
+builder.Services.AddSingleton<IAmazonBedrockRuntime>(
+    sp => EmulatorAwsClients.CreateBedrockRuntime(awsOptions, sp.GetRequiredService<ILoggerFactory>()));
+var modelId = Environment.GetEnvironmentVariable("BEDROCK_MODEL_ID");
+// Guardrail opcional (N-4009/N-4011): env > Parameter Store (D-0024) > sin filtro. Un id que no existe
+// hace fallar la llamada: nunca se responde sin filtrar.
+var guardrailId = Environment.GetEnvironmentVariable("BEDROCK_GUARDRAIL_ID")?.Trim();
+var guardrailVersion = Environment.GetEnvironmentVariable("BEDROCK_GUARDRAIL_VERSION")?.Trim();
+if (string.IsNullOrEmpty(guardrailId))
+{
+    using var ssm = EmulatorAwsClients.CreateSsm(awsOptions);
+    guardrailId = (await ParameterStore.LoadAsync(ssm)).GetValueOrDefault(ParameterNames.GuardrailId)?.Trim();
+}
+var guardrail = string.IsNullOrEmpty(guardrailId) ? null : new GuardrailConfiguration
+{
+    GuardrailIdentifier = guardrailId,
+    GuardrailVersion = string.IsNullOrEmpty(guardrailVersion) ? "DRAFT" : guardrailVersion,
+};
+builder.Services.AddSingleton(sp => new EventAssistant(sp.GetRequiredService<IAmazonBedrockRuntime>(),
+    string.IsNullOrWhiteSpace(modelId) ? EventAssistant.DefaultModelId : modelId.Trim(), guardrail));
 
 builder.Services.AddHybridCache(); // cache in-app (D-0007)
 builder.Services.AddSingleton<AvailabilityCacheOptions>();
@@ -56,6 +79,8 @@ var excludePrefix = Environment.GetEnvironmentVariable("CATALOG_EXCLUDE_ID_PREFI
 app.Logger.LogInformation(
     "catálogo listo en :{Port} — seed aplicado ({Count} eventos, condicional), tabla {Table}",
     port, seed.Count, DynamoDbEventRepository.TableName);
+
+app.Logger.LogInformation("guardrail del asistente: {Guardrail}", guardrail?.GuardrailIdentifier ?? "ninguno (sin filtro)");
 
 // Errores 500 sin internals (NFR-4).
 app.UseExceptionHandler(errorApp => errorApp.Run(ctx =>
@@ -99,6 +124,53 @@ app.MapPost("/internal/events/{id}/invalidate-cache",
         await availability.InvalidateAsync(id, ct);
         return Results.NoContent();
     });
+
+// Pregunta en lenguaje natural sobre un evento (N-4008). El body se lee a mano: JSON roto o
+// Content-Type ajeno es 400, no una excepción de binding.
+// shortcut: sin auth ni rate limit porque el emulador no cobra; exigirlos antes de usar Bedrock real.
+app.MapPost("/events/{id}/ask", async (HttpRequest http, string id, IEventRepository repository,
+    EventAssistant assistant, ILogger<EventAssistant> logger, CancellationToken ct) =>
+{
+    if (!CatalogEventId.IsValid(id))
+        return InvalidId(id);
+
+    string? question = null;
+    if (http.HasJsonContentType())
+    {
+        // Se lee como UTF-8 sin mirar el charset declarado: uno raro no puede terminar en 500.
+        try
+        {
+            question = (await JsonSerializer.DeserializeAsync<AskRequest>(
+                http.Body, JsonSerializerOptions.Web, ct))?.Question?.Trim();
+        }
+        catch (JsonException) { }
+        catch (BadHttpRequestException ex) // body enorme (413), lento (408) o mal fragmentado (400)
+        {
+            return Results.Problem(statusCode: ex.StatusCode, title: "Invalid request", type: "invalid-question");
+        }
+    }
+    if (string.IsNullOrEmpty(question) || question.Length > EventAssistant.MaxQuestionLength)
+        return Results.Problem(statusCode: 400, title: "Invalid question", type: "invalid-question",
+            detail: $"Enviá JSON {{\"question\": \"...\"}} de 1 a {EventAssistant.MaxQuestionLength} caracteres.");
+
+    var evt = await repository.GetByIdAsync(id, ct);
+    if (evt is null)
+        return Results.Problem(statusCode: 404, title: "Event not found", type: "event-not-found",
+            detail: $"El evento '{id}' no existe.");
+
+    // El timeout del SDK no acota la lectura del body de la respuesta: se acota la llamada entera.
+    using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
+    timeout.CancelAfter(awsOptions.Timeout);
+    try
+    {
+        return Results.Ok(await assistant.AskAsync(evt, question, timeout.Token).WaitAsync(timeout.Token));
+    }
+    catch (Exception ex) when (!ct.IsCancellationRequested) // rechazo, red, timeout o breaker abierto
+    {
+        logger.LogError(ex, "Bedrock no respondió para el evento {EventId}", id);
+        return Results.Problem(statusCode: 503, title: "Assistant unavailable", type: "assistant-unavailable");
+    }
+});
 
 // Resiliencia observable (D-0012): inyección de fallos en vivo + DLQ del worker de este servicio.
 app.MapResilienceAdmin(SagaQueues.CatalogCommands);

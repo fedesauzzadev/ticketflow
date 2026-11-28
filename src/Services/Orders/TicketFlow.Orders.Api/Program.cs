@@ -1,3 +1,4 @@
+using System.Security.Claims;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Amazon.DynamoDBv2;
@@ -16,12 +17,17 @@ var builder = WebApplication.CreateBuilder(args);
 // Contrato de traza D-0011: Timestamp ISO UTC ordenable (trace-purchase.ps1).
 builder.Logging.AddServiceTraceLogging();
 
-// TTL de holds (D-0017 §6): fail-fast al arranque — un env inválido no deja arrancar Órdenes.
-var holdTtl = HoldTtl.FromEnvironment();
-
 // Config 100% por env, validada fail-fast al arranque (NFR-1 / D-0003).
 var awsOptions = EmulatorAwsOptions.FromEnvironment();
 builder.Services.AddSingleton(awsOptions);
+// Parameter Store (D-0024): config compartida leída una vez al arranque, fail-fast si falta.
+using var ssm = EmulatorAwsClients.CreateSsm(awsOptions);
+var parameters = await ParameterStore.LoadAsync(ssm);
+// TTL de holds (D-0017 §6): un valor inválido no deja arrancar Órdenes.
+var holdTtl = HoldTtl.FromEnvironment(parameters.GetValueOrDefault(ParameterNames.HoldTtlSeconds));
+// Cognito (D-0024): solo usuarios autenticados compran, y cada uno ve únicamente lo suyo.
+builder.Services.AddCognitoJwtAuth(awsOptions,
+    parameters.Required(ParameterNames.UserPoolId), parameters.Required(ParameterNames.ClientId));
 // ILoggerFactory → circuit breakers por downstream loguean apertura/cierre (D-0012).
 builder.Services.AddSingleton<IAmazonDynamoDB>(
     sp => EmulatorAwsClients.CreateDynamoDb(awsOptions, sp.GetRequiredService<ILoggerFactory>()));
@@ -81,8 +87,9 @@ app.MapResilienceAdmin(SagaQueues.OrdersEvents);
 // nuevos (200); misma key + body distinto ⇒ 422; key nueva + agotado ⇒ 422 sin consumir la key.
 app.MapPost("/purchases", async (HttpRequest http, IPurchaseRepository purchases, IOutbox outbox,
     IIdempotencyStore idempotency, ICatalogAvailabilityGateway catalog, ILogger<Program> logger,
-    CancellationToken ct) =>
+    ClaimsPrincipal user, CancellationToken ct) =>
 {
+    var owner = user.FindFirstValue("sub")!;
     var keyError = PurchaseRequestValidator.ValidateIdempotencyKey(
         http.Headers.TryGetValue("Idempotency-Key", out var keyHeader) ? keyHeader.ToString() : null);
     if (keyError is not null)
@@ -120,9 +127,11 @@ app.MapPost("/purchases", async (HttpRequest http, IPurchaseRepository purchases
 
     // H-03 AC1: peek de la key — el replay gana sobre todo lo demás (ni disponibilidad se revalida).
     var requestHash = PurchaseBodyHash.Of(request);
-    var existing = await idempotency.FindAsync(key, ct);
+    // La key es por usuario (D-0024): la misma key de otra persona no revela su compra.
+    var scopedKey = $"{owner}:{key}";
+    var existing = await idempotency.FindAsync(scopedKey, ct);
     if (existing is not null)
-        return await ResolveExistingKeyAsync(existing, request, requestHash, key, purchases, outbox, logger, ct);
+        return await ResolveExistingKeyAsync(existing, request, requestHash, key, owner, purchases, outbox, logger, ct);
 
     // H-03 AC3: validación sincrónica de disponibilidad (plan §2: 422 si agotados). Fail-open
     // si el Catálogo no responde — el guard real sigue siendo el decremento condicional (D-0009).
@@ -139,14 +148,14 @@ app.MapPost("/purchases", async (HttpRequest http, IPurchaseRepository purchases
 
     var purchase = Purchase.Create(
         PurchaseIds.New(), request.EventId!, request.Seats!.Value, request.Card!.Pan!, key,
-        DateTimeOffset.UtcNow, hold: request.Hold is { ValueKind: JsonValueKind.True });
-    if (!await idempotency.TryClaimAsync(key, requestHash, purchase.PurchaseId, ct))
+        DateTimeOffset.UtcNow, hold: request.Hold is { ValueKind: JsonValueKind.True }, owner: owner);
+    if (!await idempotency.TryClaimAsync(scopedKey, requestHash, purchase.PurchaseId, ct))
     {
         // Carrera: otra request con la misma key ganó el claim mientras hacíamos el peek.
-        var winner = await idempotency.FindAsync(key, ct);
+        var winner = await idempotency.FindAsync(scopedKey, ct);
         if (winner is null)
             return Results.Problem(statusCode: 500, title: "Internal error", type: "internal-error");
-        return await ResolveExistingKeyAsync(winner, request, requestHash, key, purchases, outbox, logger, ct);
+        return await ResolveExistingKeyAsync(winner, request, requestHash, key, owner, purchases, outbox, logger, ct);
     }
 
     await purchases.CreateAsync(purchase, ct);
@@ -157,12 +166,12 @@ app.MapPost("/purchases", async (HttpRequest http, IPurchaseRepository purchases
     logger.LogInformation("compra {PurchaseId} creada PENDING para {EventId} x{Seats} (key {Key})",
         purchase.PurchaseId, purchase.EventId, purchase.Seats, purchase.IdempotencyKey);
     return Results.Created($"/purchases/{purchase.PurchaseId}", PurchaseResponse.Of(purchase));
-});
+}).RequireAuthorization();
 
 // Key ya registrada (D-0009): hash igual ⇒ la MISMA compra (replay 200, heal de ventana de crash);
 // hash distinto ⇒ 422 explícito — misma key nunca puede significar dos bodies distintos.
 static async Task<IResult> ResolveExistingKeyAsync(
-    IdempotencyClaim claim, PurchaseRequest request, string requestHash, string key,
+    IdempotencyClaim claim, PurchaseRequest request, string requestHash, string key, string owner,
     IPurchaseRepository purchases, IOutbox outbox, ILogger logger, CancellationToken ct)
 {
     if (claim.RequestHash != requestHash)
@@ -181,7 +190,7 @@ static async Task<IResult> ResolveExistingKeyAsync(
         // Ventana de crash entre claim y create: la key es dueña del id → el replay la completa.
         purchase = Purchase.Create(claim.PurchaseId, request.EventId!, request.Seats!.Value,
             request.Card!.Pan!, key, DateTimeOffset.UtcNow,
-            hold: request.Hold is { ValueKind: JsonValueKind.True });
+            hold: request.Hold is { ValueKind: JsonValueKind.True }, owner: owner);
         await purchases.CreateAsync(purchase, ct);
         await outbox.EnqueueAsync(SagaQueues.CatalogCommands, SagaTypes.ReserveSeats, purchase.PurchaseId,
             new ReserveSeatsCommand(purchase.EventId, purchase.Seats), ct);
@@ -196,30 +205,37 @@ static async Task<IResult> ResolveExistingKeyAsync(
 }
 
 // Estado compartido observable (H-02 AC4; D-0018 §2: expires_at solo en holds).
-app.MapGet("/purchases/{id}", async (string id, IPurchaseRepository purchases, CancellationToken ct) =>
+app.MapGet("/purchases/{id}", async (string id, IPurchaseRepository purchases, ClaimsPrincipal user,
+    CancellationToken ct) =>
 {
     if (!PurchaseIds.IsValid(id))
         return Results.Problem(statusCode: 400, title: "Invalid purchase id", type: "invalid-purchase-id",
             detail: "El id de compra debe tener formato 'pur-' + 32 hex.");
 
     var purchase = await purchases.GetAsync(id, ct);
-    return purchase is null
+    // Compra ajena = 404, igual que inexistente: no confirma que el id existe.
+    return purchase is null || purchase.Owner != user.FindFirstValue("sub")
         ? Results.Problem(statusCode: 404, title: "Purchase not found", type: "purchase-not-found",
             detail: $"La compra '{id}' no existe.")
         : Results.Ok(PurchaseResponse.Of(purchase));
-});
+}).RequireAuthorization();
 
 // Completar el pago de un hold (D-0018 §3): claim CAS contra el sweeper (D-0017 §4).
 // 202 claim ganado (la saga V1 sigue sola) · 200 replay del endpoint · 409 hold-expired (tardío)
 // · 409 invalid-state (no-hold o estado avanzado) · 404 · 400 id inválido.
 app.MapPost("/purchases/{id}/payment", async (string id, IPurchaseRepository purchases, IOutbox outbox,
-    ILogger<Program> logger, CancellationToken ct) =>
+    ILogger<Program> logger, ClaimsPrincipal user, CancellationToken ct) =>
 {
     if (!PurchaseIds.IsValid(id))
         return Results.Problem(statusCode: 400, title: "Invalid purchase id", type: "invalid-purchase-id",
             detail: "El id de compra debe tener formato 'pur-' + 32 hex.");
 
-    switch (await purchases.TryClaimPaymentAsync(id, ct))
+    // El dueño se chequea ANTES del claim: un tercero no puede disparar el cobro.
+    var owned = await purchases.GetAsync(id, ct);
+    var outcome = owned is not null && owned.Owner == user.FindFirstValue("sub")
+        ? await purchases.TryClaimPaymentAsync(id, ct)
+        : PaymentClaimOutcome.NotFound;
+    switch (outcome)
     {
         case PaymentClaimOutcome.NotFound:
             return Results.Problem(statusCode: 404, title: "Purchase not found", type: "purchase-not-found",
@@ -260,7 +276,7 @@ app.MapPost("/purchases/{id}/payment", async (string id, IPurchaseRepository pur
                     PurchaseResponse.ExpiresAtOf(purchase)));
         }
     }
-});
+}).RequireAuthorization();
 
 app.Run();
 
